@@ -1,0 +1,7 @@
+---
+infra:
+    - name: "InfraTest"
+    # Worker subnets for AZ
+      worker_subnets: 1
+      network:
+        cidr_16_prefix: "10.151"
