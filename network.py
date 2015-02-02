@@ -1,4 +1,6 @@
 import yaml
+import argparse
+import json
 
 from troposphere import Parameter, Ref, Tags, Template
 from troposphere import Join, Output, Select, FindInMap
@@ -19,209 +21,232 @@ from troposphere.ec2 import VPCGatewayAttachment
 from troposphere.ec2 import SecurityGroup, SecurityGroupRule
 from troposphere.ec2 import Instance
 
-with open ('conf.yml', 'r') as yfile:
-    config = yaml.load(yfile)
-    infra = config['infra'][0]
+def _create_parser():
+    parser = argparse.ArgumentParser(prog='network.py')
+    parser.add_argument('-c', '--config', type=str, required=True, help='The configuration YAML file to use to generate the Cloudformation template')
+    parser.add_argument('-o', '--outfile', type=str, help='The file to write the Cloudformation template to')
+    return parser
 
-DEFAULT_ROUTE = '0.0.0.0/0'
-CIDR_PREFIX= infra['network']['cidr_16_prefix']
-VPC_NAME = infra['name']
+def create_cfn_template(conf_file, outfile):
+    with open (conf_file, 'r') as yfile:
+        config = yaml.load(yfile)
+        infra = config['infra'][0]
 
-t = Template()
-t.add_version('2010-09-09')
+    DEFAULT_ROUTE = '0.0.0.0/0'
+    CIDR_PREFIX= infra['network']['cidr_16_prefix']
+    VPC_NAME = infra['name']
+    PRIVATE_SUBNETS = infra['network']['private_subnets']
 
-t.add_description('This is a Cloudformation script that creates the base VPC across three AZs, with 1 public subnet, 3 private subnets, and proper NAT and routing tables.')
+    t = Template()
+    t.add_version('2010-09-09')
 
-# Parameters for the Cloudformation Template
-t.add_mapping('RegionMap',
-    {
-        'us-east-1': {'NATAMI': 'ami-184dc970'},
-        'us-west-1': {'NATAMI': 'ami-a98396ec'},
-        'us-west-2': {'NATAMI': 'ami-290f4119'},
-        'eu-west-1': {'NATAMI': 'ami-14913f63'},
-        'ap-northeast-1': { 'NATAMI': 'ami-27d6e626'},
-        'ap-southeast-1': { 'NATAMI': 'ami-6aa38238'},
-        'ap-southeast-2': { 'NATAMI': 'ami-893f53b3'},
-    })
+    t.add_description('This is a Cloudformation script that creates the base VPC across three AZs, with 1 public subnet, 3 private subnets, and proper NAT and routing tables.')
 
-nat_instance_class = t.add_parameter(Parameter(
-    'NatInstanceType', Type='String', Default='t2.micro',
-    Description='NAT instance type',
-    AllowedValues=['t2.micro', 't2.medium', 't2.medium', 'm3.medium',
-                   'm3.large', 'm3.xlarge', 'c3.large', 'c3.xlarge'],
-    ConstraintDescription='Instance size must be a valid instance type'
-))
+    # Parameters for the Cloudformation Template
+    t.add_mapping('RegionMap',
+        {
+            'us-east-1': {'NATAMI': 'ami-184dc970'},
+            'us-west-1': {'NATAMI': 'ami-a98396ec'},
+            'us-west-2': {'NATAMI': 'ami-290f4119'},
+            'eu-west-1': {'NATAMI': 'ami-14913f63'},
+            'ap-northeast-1': { 'NATAMI': 'ami-27d6e626'},
+            'ap-southeast-1': { 'NATAMI': 'ami-6aa38238'},
+            'ap-southeast-2': { 'NATAMI': 'ami-893f53b3'},
+        })
 
-# An EC2 keypair to use
-keyname_param = t.add_parameter(Parameter(
-    'KeyName', Type='AWS::EC2::KeyPair::KeyName',
-    Description='Name of an existing EC2 KeyPair to enable SSH access'
-))
-
-# Set the AZs this template creates resources in
-AVAILABILITY_ZONES = ['c', 'd', 'e']
-az_string = ','.join(AVAILABILITY_ZONES)
-availability_zones = t.add_parameter(Parameter(
-    'AvailabilityZones', Type='CommaDelimitedList', Default=az_string,
-    Description='A list of three availability zone letters to distribute the subnets across.'
-))
-
-# The VPC
-vpc = t.add_resource(VPC(
-    'VPC', CidrBlock='{0}.0.0/16'.format(CIDR_PREFIX), EnableDnsSupport=True,
-    Tags=Tags(Name=Join('-', [VPC_NAME, Ref('AWS::Region')]))
-))
-
-igw = t.add_resource(InternetGateway(
-    'InternetGateway', Tags=Tags(Name='InternetGateway'),
-    DependsOn=vpc.title
-))
-
-gateway_attachment = t.add_resource(VPCGatewayAttachment(
-    'GatewayAttachment', VpcId=Ref(vpc), InternetGatewayId=Ref(igw),
-    DependsOn=igw.title
-))
-
-public_rt = t.add_resource(RouteTable(
-    '{0}PublicRouteTable'.format(VPC_NAME), VpcId=Ref(vpc),
-    DependsOn=vpc.title
-))
-
-# add in the public routes for this
-t.add_resource(Route('PublicRoute', RouteTableId=Ref(public_rt),
-    DestinationCidrBlock=DEFAULT_ROUTE,
-    DependsOn=gateway_attachment.title,
-    GatewayId=Ref(igw),
-))
-
-nat_ingress_rules = [
-    SecurityGroupRule(
-        IpProtocol='tcp', CidrIp=DEFAULT_ROUTE, FromPort=p, ToPort=p
-    ) for p in [22, 80, 443]
-]
-
-nat_egress_rules = [
-    SecurityGroupRule(
-        IpProtocol='tcp', CidrIp=DEFAULT_ROUTE, FromPort=p, ToPort=p
-    ) for p in [80, 443]
-]
-
-
-nat_sg = t.add_resource(SecurityGroup(
-    "NATSecurityGroup",
-    GroupDescription="Security Group for NAT instances",
-    VpcId=Ref(vpc),
-    SecurityGroupIngress=nat_ingress_rules,
-    SecurityGroupEgress=nat_egress_rules,
-    DependsOn=vpc.title
-))
-
-for idx, zone in enumerate(AVAILABILITY_ZONES):
-    region = Ref('AWS::Region')
-    availability_zone = Select(idx, Ref(availability_zones))
-    full_region_descriptor = Join('', [region, availability_zone])
-    # create a public subnet in each availability zone
-    public_subnet = t.add_resource(Subnet(
-        '{0}PublicSubnet{1}'.format(VPC_NAME, zone),
-        VpcId=Ref(vpc),
-        CidrBlock='{0}.{1}.0/24'.format(CIDR_PREFIX, 80 + idx),
-        AvailabilityZone=full_region_descriptor,
-        DependsOn=vpc.title,
-        Tags=Tags(Name=Join('-', [VPC_NAME, 'public-subnet', full_region_descriptor]))
+    nat_instance_class = t.add_parameter(Parameter(
+        'NatInstanceType', Type='String', Default='t2.micro',
+        Description='NAT instance type',
+        AllowedValues=['t2.micro', 't2.medium', 't2.medium', 'm3.medium',
+                       'm3.large', 'm3.xlarge', 'c3.large', 'c3.xlarge'],
+        ConstraintDescription='Instance size must be a valid instance type'
     ))
 
-    # Associate the public routing table with the subnet
-    t.add_resource(SubnetRouteTableAssociation(
-        '{0}PublicRouteTableAssociation'.format(public_subnet.title),
-        SubnetId=Ref(public_subnet),
-        RouteTableId=Ref(public_rt),
-        DependsOn=public_subnet.title
+    # An EC2 keypair to use
+    keyname_param = t.add_parameter(Parameter(
+        'KeyName', Type='AWS::EC2::KeyPair::KeyName',
+        Description='Name of an existing EC2 KeyPair to enable SSH access'
     ))
 
-    # Create the NAT in the public subnet
-    nat_name = '{0}Nat{1}'.format(VPC_NAME, zone)
-    nat_instance = t.add_resource(Instance(
-        nat_name,
-        DependsOn=vpc.title,
-        InstanceType=Ref(nat_instance_class),
-        KeyName=Ref(keyname_param),
-        SourceDestCheck=False,
-        ImageId=FindInMap('RegionMap', region, 'NATAMI'),
-        NetworkInterfaces=[
-            NetworkInterfaceProperty(
-                Description='Network interface for {0}'.format(nat_name),
-                GroupSet=[Ref(nat_sg)],
-                SubnetId=Ref(public_subnet),
-                AssociatePublicIpAddress=True,
-                DeviceIndex=0,
-                DeleteOnTermination=True
-            )
-        ],
-        Tags=Tags(Name=Join('-', [VPC_NAME, 'nat', full_region_descriptor]))
+    # Set the AZs this template creates resources in
+    AVAILABILITY_ZONES = ['c', 'd', 'e']
+    az_string = ','.join(AVAILABILITY_ZONES)
+    availability_zones = t.add_parameter(Parameter(
+        'AvailabilityZones', Type='CommaDelimitedList', Default=az_string,
+        Description='A list of three availability zone letters to distribute the subnets across.'
     ))
 
-    # Associate a private routing table with the NAT
-    # and this AZ
-    private_rt = t.add_resource(RouteTable(
-        '{0}PrivateRouteTable{1}'.format(VPC_NAME, zone),
-        VpcId=Ref(vpc),
-        DependsOn=nat_instance.title,
-        Tags=Tags(Name=Join('-', [VPC_NAME, 'private-route-table', full_region_descriptor]))
+    # The VPC
+    vpc = t.add_resource(VPC(
+        'VPC', CidrBlock='{0}.0.0/16'.format(CIDR_PREFIX), EnableDnsSupport=True,
+        Tags=Tags(Name=Join('-', [VPC_NAME, Ref('AWS::Region')]))
     ))
 
-    # create routes for private routing table
-    t.add_resource(Route('PrivateRoute{0}'.format(zone.upper()),
-        RouteTableId=Ref(private_rt),
+    igw = t.add_resource(InternetGateway(
+        'InternetGateway', Tags=Tags(Name='InternetGateway'),
+        DependsOn=vpc.title
+    ))
+
+    gateway_attachment = t.add_resource(VPCGatewayAttachment(
+        'GatewayAttachment', VpcId=Ref(vpc), InternetGatewayId=Ref(igw),
+        DependsOn=igw.title
+    ))
+
+    public_rt = t.add_resource(RouteTable(
+        '{0}PublicRouteTable'.format(VPC_NAME), VpcId=Ref(vpc),
+        DependsOn=vpc.title
+    ))
+
+    # add in the public routes for this
+    t.add_resource(Route('PublicRoute', RouteTableId=Ref(public_rt),
         DestinationCidrBlock=DEFAULT_ROUTE,
-        InstanceId=Ref(nat_instance),
-        DependsOn=private_rt.title
+        DependsOn=gateway_attachment.title,
+        GatewayId=Ref(igw),
     ))
 
-    private_subnets = list()
+    nat_ingress_rules = [
+        SecurityGroupRule(
+            IpProtocol='tcp', CidrIp=DEFAULT_ROUTE, FromPort=p, ToPort=p
+        ) for p in [22, 80, 443]
+    ]
 
-    # Create worker subnets
-    worker_subnet = Subnet(
-        '{0}PrivateWorkerSubnet{1}'.format(VPC_NAME, zone),
+    nat_egress_rules = [
+        SecurityGroupRule(
+            IpProtocol='tcp', CidrIp=DEFAULT_ROUTE, FromPort=p, ToPort=p
+        ) for p in [80, 443]
+    ]
+
+
+    nat_sg = t.add_resource(SecurityGroup(
+        "NATSecurityGroup",
+        GroupDescription="Security Group for NAT instances",
         VpcId=Ref(vpc),
-        CidrBlock='{0}.{1}.0/22'.format(CIDR_PREFIX, 100 + (idx  * 4)),
-        AvailabilityZone=full_region_descriptor,
-        DependsOn=vpc.title,
-        Tags=Tags(Name=Join('-', [VPC_NAME, 'private-worker-subnet', full_region_descriptor]))
-    )
+        SecurityGroupIngress=nat_ingress_rules,
+        SecurityGroupEgress=nat_egress_rules,
+        DependsOn=vpc.title
+    ))
 
-    private_subnets.append(worker_subnet)
-
-
-    # Create the platform subnet
-    platform_subnet = Subnet('{0}PrivatePlatformSubnet{1}'.format(VPC_NAME, zone.upper()),
-        VpcId=Ref(vpc),
-        CidrBlock='{0}.{1}.0/24'.format(CIDR_PREFIX, 10 + idx),
-        AvailabilityZone=full_region_descriptor,
-        DependsOn=vpc.title,
-        Tags=Tags(Name=Join('-', [VPC_NAME, 'private-platform-subnet', full_region_descriptor]))
-    )
-
-    private_subnets.append(platform_subnet)
-
-    # Create the master subnet
-    master_subnet = Subnet('{0}PrivateMasterSubnet{1}'.format(VPC_NAME, zone.upper()),
-        VpcId=Ref(vpc),
-        CidrBlock='{0}.{1}.0/24'.format(CIDR_PREFIX, 90 + idx),
-        AvailabilityZone=full_region_descriptor,
-        DependsOn=vpc.title,
-        Tags=Tags(Name=Join('-', [VPC_NAME, 'private-master-subnet', full_region_descriptor]))
-    )
-
-    private_subnets.append(master_subnet)
-
-    # Associate every subnet with the private routing table
-    for psn in private_subnets:
-        t.add_resource(psn)
-        t.add_resource(SubnetRouteTableAssociation(
-            '{0}PrivateRouteTableAssociation'.format(psn.title),
-            SubnetId=Ref(psn),
-            RouteTableId=Ref(private_rt),
-            DependsOn=psn.title
+    for idx, zone in enumerate(AVAILABILITY_ZONES):
+        region = Ref('AWS::Region')
+        availability_zone = Select(idx, Ref(availability_zones))
+        full_region_descriptor = Join('', [region, availability_zone])
+        # create a public subnet in each availability zone
+        public_subnet = t.add_resource(Subnet(
+            '{0}PublicSubnet{1}'.format(VPC_NAME, zone),
+            VpcId=Ref(vpc),
+            CidrBlock='{0}.{1}.0/24'.format(CIDR_PREFIX, 80 + idx),
+            AvailabilityZone=full_region_descriptor,
+            DependsOn=vpc.title,
+            Tags=Tags(Name=Join('-', [VPC_NAME, 'public-subnet', full_region_descriptor]))
         ))
 
-print(t.to_json())
+        # Associate the public routing table with the subnet
+        t.add_resource(SubnetRouteTableAssociation(
+            '{0}PublicRouteTableAssociation'.format(public_subnet.title),
+            SubnetId=Ref(public_subnet),
+            RouteTableId=Ref(public_rt),
+            DependsOn=public_subnet.title
+        ))
+
+        # Create the NAT in the public subnet
+        nat_name = '{0}Nat{1}'.format(VPC_NAME, zone)
+        nat_instance = t.add_resource(Instance(
+            nat_name,
+            DependsOn=vpc.title,
+            InstanceType=Ref(nat_instance_class),
+            KeyName=Ref(keyname_param),
+            SourceDestCheck=False,
+            ImageId=FindInMap('RegionMap', region, 'NATAMI'),
+            NetworkInterfaces=[
+                NetworkInterfaceProperty(
+                    Description='Network interface for {0}'.format(nat_name),
+                    GroupSet=[Ref(nat_sg)],
+                    SubnetId=Ref(public_subnet),
+                    AssociatePublicIpAddress=True,
+                    DeviceIndex=0,
+                    DeleteOnTermination=True
+                )
+            ],
+            Tags=Tags(Name=Join('-', [VPC_NAME, 'nat', full_region_descriptor]))
+        ))
+
+        # Associate a private routing table with the NAT
+        # and this AZ
+        private_rt = t.add_resource(RouteTable(
+            '{0}PrivateRouteTable{1}'.format(VPC_NAME, zone),
+            VpcId=Ref(vpc),
+            DependsOn=nat_instance.title,
+            Tags=Tags(Name=Join('-', [VPC_NAME, 'private-route-table', full_region_descriptor]))
+        ))
+
+        # create routes for private routing table
+        t.add_resource(Route('PrivateRoute{0}'.format(zone.upper()),
+            RouteTableId=Ref(private_rt),
+            DestinationCidrBlock=DEFAULT_ROUTE,
+            InstanceId=Ref(nat_instance),
+            DependsOn=private_rt.title
+        ))
+
+        subnets = list()
+
+        subnet_identifier = 'private' if PRIVATE_SUBNETS else 'public'
+
+        # Create worker subnets
+        worker_subnet = Subnet(
+            '{0}{1}WorkerSubnet{2}'.format(VPC_NAME, subnet_identifier, zone),
+            VpcId=Ref(vpc),
+            CidrBlock='{0}.{1}.0/22'.format(CIDR_PREFIX, 100 + (idx  * 4)),
+            AvailabilityZone=full_region_descriptor,
+            DependsOn=vpc.title,
+            Tags=Tags(Name=Join('-', [VPC_NAME, '{0}-worker-subnet'.format(subnet_identifier), full_region_descriptor]))
+        )
+
+        subnets.append(worker_subnet)
+
+
+        # Create the platform subnet
+        platform_subnet = Subnet('{0}{1}PlatformSubnet{2}'.format(VPC_NAME, subnet_identifier, zone.upper()),
+            VpcId=Ref(vpc),
+            CidrBlock='{0}.{1}.0/24'.format(CIDR_PREFIX, 10 + idx),
+            AvailabilityZone=full_region_descriptor,
+            DependsOn=vpc.title,
+            Tags=Tags(Name=Join('-', [VPC_NAME, '{0}-platform-subnet'.format(subnet_identifier), full_region_descriptor]))
+        )
+
+        subnets.append(platform_subnet)
+
+        # Create the master subnet
+        master_subnet = Subnet('{0}{1}MasterSubnet{2}'.format(VPC_NAME, subnet_identifier, zone.upper()),
+            VpcId=Ref(vpc),
+            CidrBlock='{0}.{1}.0/24'.format(CIDR_PREFIX, 90 + idx),
+            AvailabilityZone=full_region_descriptor,
+            DependsOn=vpc.title,
+            Tags=Tags(Name=Join('-', [VPC_NAME, '{0}-master-subnet'.format(subnet_identifier), full_region_descriptor]))
+        )
+
+        subnets.append(master_subnet)
+
+        # Associate every subnet with the private routing table
+        routing_table = private_rt if PRIVATE_SUBNETS else public_rt
+        for psn in subnets:
+            t.add_resource(psn)
+            t.add_resource(SubnetRouteTableAssociation(
+                '{0}{1}RouteTableAssociation'.format(psn.title, subnet_identifier),
+                SubnetId=Ref(psn),
+                RouteTableId=Ref(routing_table),
+                DependsOn=psn.title
+            ))
+
+    if not outfile:
+        print(t.to_json())
+    else:
+        with open(outfile, 'w') as ofile:
+            print >> ofile, t.to_json()
+            
+
+if __name__ == '__main__':
+    arg_parser = _create_parser()
+    args = arg_parser.parse_args()
+
+    print('Creating cloudformation template using config file: {0} '.format(args.config))
+    create_cfn_template(args.config, args.outfile)
