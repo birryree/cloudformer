@@ -44,6 +44,7 @@ erber -o env=infra -o cloud=test-cloud -o deploy=babysitter lib/templates/cloud-
 ```
 - Create autoscaling group `ENV.CLOUDNAME.babysitter`
   - 1 instance
+  - Subscribe `terminate` notices to SNS topic `ENV_CLOUDNAME_chef-deregistration`.
   - Add it. (Chef will do the rest.)
 
 ## Zookeeper
