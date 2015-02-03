@@ -19,24 +19,24 @@ erber -o env=infra -o cloud=test-cloud -o region=us-east-1 lib/templates/default
 - Create S3 bucket `CLOUDSTRAP_BUCKET`.
   - Upload `s3://CLOUDSTRAP_BUCKET/validator.pem` to bucket. (If hosted-chef, will be named `leaf-ENV-validator.pem`, change it.)
   - Upload VPN server credentials to `s3://BUCKET/vpn-server`
-- Create security group `CLOUDNAME.ENV.ssh-accessible`.
+- Create security group `ssh-accessible.CLOUDNAME.ENV`.
   - ingress for `/0`: tcp 22 (TODO: change to VPN subnet when VPN working)
 
 ## Networks
 - We've already got this. `platform`, `master`, `worker`, and `public` subnets.
 
 ## Babysitter
-- Create SQS queue `CLOUDNAME_ENV_chef-deregistration`.
+- Create SQS queue `chef-deregistration_CLOUDNAME_ENV`.
   - Visibility timeout: 1 minute
   - Retention period: 14 days
   - Message size: 16 kilobytes
 - Set a cloudwatch alarm on the SQS queue if it gets over, say, 200 entries.
-- Create SNS queue `CLOUDNAME_ENV_chef-deregistration`.
+- Create SNS queue `chef-deregistration_CLOUDNAME_ENV`.
 - Subscribe SQS queue to SNS queue.
-- Create IAM role `CLOUDNAME.ENV.babysitter`.
+- Create IAM role `babysitter.CLOUDNAME.ENV`.
   - Apply `default_policy.json.erb` to role.
   - Apply `babysitter_policy.json.erb` to role.
-- Create launch configuration `CLOUDNAME.ENV.babysitter`:
+- Create launch configuration `babysitter.CLOUDNAME.ENV`:
   - `t2.micro`
   - AMI: HVM EBS Ubuntu 14.04
   - EBS delete on termination
@@ -44,20 +44,20 @@ erber -o env=infra -o cloud=test-cloud -o region=us-east-1 lib/templates/default
 ```bash
 erber -o env=infra -o cloud=test-cloud -o deploy=babysitter lib/templates/cloud-init.bash.erb
 ```
-- Create autoscaling group `CLOUDNAME.ENV.babysitter`
+- Create autoscaling group `babysitter.CLOUDNAME.ENV`
   - 1 instance
-  - Subscribe `terminate` notices to SNS topic `CLOUDNAME_ENV_chef-deregistration`.
+  - Subscribe `terminate` notices to SNS topic `chef-deregistration_CLOUDNAME_ENV`.
   - Add it. (Chef will do the rest.)
 - `TODO:` write up the deregistration gizmo. 
 
 ## Zookeeper
-- Create IAM role `CLOUDNAME.ENV.zookeeper`.
+- Create IAM role `zookeeper.CLOUDNAME.ENV`.
   - Apply `default_policy.json.erb` to role.
   - Apply `zookeeper_policy.json.erb` to role.
-- Create security group `CLOUDNAME.ENV.zookeeper`.
+- Create security group `zookeeper.CLOUDNAME.ENV`.
   - ingress for `VPC-CIDR/16`: tcp 2181
   - ingress for `ENV.CLOUDNAME.zookeeper`: tcp 2888, tcp 3888
-- Create launch configuration `CLOUDNAME.ENV.zookeeper`:
+- Create launch configuration `zookeeper.CLOUDNAME.ENV`:
   - `m3.large`
   - AMI: HVM Instance Store 14.04 (us-east-1: ami-1f958c76)
-  - Security groups: `CLOUDNAME.ENV.zookeeper`, `CLOUDNAME.ENV.ssh-accessible`
+  - Security groups: `zookeeper.CLOUDNAME.ENV`, `ssh-accessible.CLOUDNAME.ENV`
