@@ -33,7 +33,7 @@ echo "validation_client_name    'leaf-$ENV-validator'"                          
 echo "validation_key            '/etc/chef/validation.pem'"                     >> /etc/chef/client.rb
 echo "log_level                 :info"                                          >> /etc/chef/client.rb
 echo "log_location              '/var/log/chef.log'"                            >> /etc/chef/client.rb
-echo "environment               '$ENV_$CLOUDNAME'"                              >> /etc/chef/client.rb
+echo "environment               '${ENV}_${CLOUDNAME}'"                              >> /etc/chef/client.rb
 echo "node_name                 '$NODE_NAME'"                                   >> /etc/chef/client.rb
 
 chef-client                                   # register the node
