@@ -51,6 +51,7 @@ erber -o env=infra -o cloud=test-cloud -o deploy=babysitter lib/templates/cloud-
 - `TODO:` write up the deregistration gizmo. 
 
 ## Zookeeper
+- Create S3 bucket `zookeeper.CLOUDNAME.REGION.ENV.leafme`.
 - Create IAM role `zookeeper.CLOUDNAME.ENV`.
   - Apply `default_policy.json.erb` to role.
   - Apply `zookeeper_policy.json.erb` to role.
