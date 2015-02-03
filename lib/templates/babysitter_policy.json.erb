@@ -12,7 +12,7 @@
 
       ],
       "Resource": [
-        "arn:aws:sqs:<%= region %>:*:<%= env %>_<%= cloud %>_chef-deregistration"
+        "arn:aws:sqs:<%= region %>:*:<%= cloud %>_<%= env %>_chef-deregistration"
       ]
     },
     {
@@ -29,7 +29,7 @@
         "sns:Subscribe"
       ],
       "Resource": [
-        "arn:aws:sns:<%= region %>:*:<%= env %>_<%= cloud %>_chef-deregistration"
+        "arn:aws:sns:<%= region %>:*:<%= cloud %>_<%= env %>_chef-deregistration"
       ]
     }
   ]
