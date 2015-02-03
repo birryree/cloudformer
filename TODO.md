@@ -30,6 +30,7 @@ erber -o env=infra -o cloud=test-cloud -o region=us-east-1 lib/templates/default
   - Visibility timeout: 1 minute
   - Retention period: 14 days
   - Message size: 16 kilobytes
+- Set a cloudwatch alarm on the SQS queue if it gets over, say, 200 entries.
 - Create SNS queue `ENV_CLOUDNAME_chef-deregistration`.
 - Subscribe SQS queue to SNS queue.
 - Create IAM role `ENV.CLOUDNAME.babysitter`.

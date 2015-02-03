@@ -1,22 +1,18 @@
 #! /usr/bin/env bash
+# TODO: enable set -e and bugproof
 
 export ENV='<%= env %>'
 export CLOUDNAME='<%= cloud %>'
 export DEPLOY='<%= deploy %>'
 
 AVAILABILITY_ZONE=$(curl http://169.254.169.254/latest/meta-data/placement/availability-zone)
+INSTANCE_ID=$(curl http://169.254.169.254/latest/meta-data/instance-id)
 export REGION="${AVAILABILITY_ZONE:0:${#AVAILABILITY_ZONE} - 1}"
 
 export CHEF_ENVIRONMENT='${ENV}.${CLOUDNAME}'
 export CHEF_VERSION='12.0'
 
-if [[ -f /cloud-init-successful ]]
-  then
-
-  exit 0
-fi
-
-rm /cloud-init-failed 2&>1 /dev/null
+rm /cloud-init-* > /dev/null 2&>1
 
 apt-get install -y awscli
 curl -LO https://www.chef.io/chef/install.sh && sudo bash ./install.sh -v $CHEF_VERSION && rm install.sh
@@ -27,14 +23,22 @@ aws s3 --region $REGION cp s3://$ENV.$REGION.$CLOUDNAME.instance.cloudstrap.leaf
 
 CHEF_SERVER_URL="https://api.opscode.com/organizations/leaf-$ENV"
 
-rm /etc/chef/client.rb  2&>1 /dev/null
-echo "chef_server_url           '$CHEF_SERVER_URL'"         >> /etc/chef/client.rb
-echo "validation_client_name    'leaf-$ENV-validator'"      >> /etc/chef/client.rb
-echo "validation_key            '/etc/chef/validation.pem'" >> /etc/chef/client.rb
+NODE_NAME="$ENV.$CLOUDNAME.$DEPLOY.${INSTANCE_ID:2}"
 
-chef-client # no args, to register the node
+aws --region $REGION ec2 create-tags --resources $INSTANCE_ID --tags Key=Name,Value=$NODE_NAME
 
-chef-client -r leaf-deploy-$DEPLOY
+rm /etc/chef/client.rb > /dev/null 2&>1
+echo "chef_server_url           '$CHEF_SERVER_URL'"                             >> /etc/chef/client.rb
+echo "validation_client_name    'leaf-$ENV-validator'"                          >> /etc/chef/client.rb
+echo "validation_key            '/etc/chef/validation.pem'"                     >> /etc/chef/client.rb
+echo "log_level                 :info"                                          >> /etc/chef/client.rb
+echo "log_location              '/var/log/chef.log'"                            >> /etc/chef/client.rb
+echo "environment               '$ENV_$CLOUDNAME'"                              >> /etc/chef/client.rb
+echo "node_name                 '$NODE_NAME'"                                   >> /etc/chef/client.rb
+
+chef-client                                   # register the node
+chef-client -r chef-client::delete_validation # clears validation pem
+chef-client -r leaf-deploy-$DEPLOY            # shootans the laser
 
 crontab -l | { cat; echo "*/5 * * * * chef-client -r leaf-deploy-$DEPLOY"; } | crontab -
 
