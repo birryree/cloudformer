@@ -1,0 +1,15 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "Stmt1422895155000",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::<%= env %>.<%= region %>.<%= cloud %>.instance.cloudstrap.leafme/validator.pem"
+      ]
+    }
+  ]
+}

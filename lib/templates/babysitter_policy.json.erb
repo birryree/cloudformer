@@ -1,0 +1,36 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "Stmt1422912335000",
+      "Effect": "Allow",
+      "Action": [
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl",
+        "sqs:ListQueues",
+        "sqs:ReceiveMessage",
+
+      ],
+      "Resource": [
+        "arn:aws:sqs:<%= region %>:*:<%= env %>_<%= cloud %>_chef-deregistration"
+      ]
+    },
+    {
+      "Sid": "Stmt1422912907000",
+      "Effect": "Allow",
+      "Action": [
+        "sns:ConfirmSubscription",
+        "sns:GetEndpointAttributes",
+        "sns:GetTopicAttributes",
+        "sns:ListSubscriptions",
+        "sns:ListSubscriptionsByTopic",
+        "sns:ListTopics",
+        "sns:Publish",
+        "sns:Subscribe"
+      ],
+      "Resource": [
+        "arn:aws:sns:<%= region %>:*:<%= env %>_<%= cloud %>_chef-deregistration"
+      ]
+    }
+  ]
+}
