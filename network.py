@@ -4,14 +4,13 @@ import json
 
 from troposphere import Parameter, Ref, Tags, Template, GetAtt
 from troposphere import Join, Output, Select, FindInMap, Base64
-from troposphere import GetAZs
 from troposphere import Equals
 
 from troposphere.autoscaling import LaunchConfiguration, AutoScalingGroup, Tag
 from troposphere.autoscaling import Metadata, NotificationConfiguration
 from troposphere.autoscaling import EC2_INSTANCE_TERMINATE
 from troposphere.cloudwatch import Alarm, MetricDimension
-from troposphere.iam import Role, Group, PolicyType, LoginProfile, Policy
+from troposphere.iam import Role, Group, PolicyType, LoginProfile, Policy, InstanceProfile
 from troposphere.ec2 import NetworkAcl, NetworkInterfaceProperty
 from troposphere.ec2 import BlockDeviceMapping, EBSBlockDevice
 from troposphere.ec2 import Route
@@ -108,7 +107,7 @@ def create_cfn_template(conf_file, outfile):
             'CreateCloudstrapBucket',
             Type='String',
             Description='Whether or not to create the Cloudstrap bucket',
-            Default='yes',
+            Default='no',
             AllowedValues=['yes', 'no'],
             ConstraintDescription='Answer must be yes or no'
         )
@@ -119,7 +118,7 @@ def create_cfn_template(conf_file, outfile):
             'CreateZookeeperBucket',
             Type='String',
             Description='Whether or not to create the Zookeeper bucket. This option is provided in case the bucket already exists.',
-            Default='yes',
+            Default='no',
             AllowedValues=['yes', 'no'],
             ConstraintDescription='Answer must be yes or no'
         )
@@ -353,7 +352,7 @@ def create_cfn_template(conf_file, outfile):
     # Define a parameter for where alerts go
     babysitter_email_param = t.add_parameter(Parameter(
         'BabysitterAlarmEmail',
-        Default='devops@leaf.me',
+        Default='wlee@leaf.me',
         Description='Email address to notify if there are issues in the babysitter queue',
         Type='String'
     ))
@@ -442,6 +441,16 @@ def create_cfn_template(conf_file, outfile):
         )
     )
 
+    babysitter_instance_profile = t.add_resource(
+        InstanceProfile(
+            "babysitterInstanceProfile",
+            Path="/",
+            Roles=[Ref(babysitter_iam_role)],
+            DependsOn=babysitter_iam_role.title
+        )
+    )
+
+
     with open('cloud-init.bash', 'r') as shfile:
         bash_file = shfile.read()
 
@@ -451,7 +460,7 @@ def create_cfn_template(conf_file, outfile):
             "BabysitterLaunchConfiguration",
             ImageId=FindInMap('RegionMap', region, 'EBSAMI'),
             InstanceType=Ref(babysitter_instance_class),
-            IamInstanceProfile=Ref(babysitter_iam_role),
+            IamInstanceProfile=Ref(babysitter_instance_profile),
             BlockDeviceMappings=[
                 BlockDeviceMapping(
                     DeviceName="/dev/sda1",
@@ -462,17 +471,19 @@ def create_cfn_template(conf_file, outfile):
             ],
             KeyName=Ref(keyname_param),
             SecurityGroups=[Ref(ssh_sg)],
-            DependsOn=[babysitter_iam_role.title, ssh_sg.title],
+            DependsOn=[babysitter_instance_profile.title, ssh_sg.title],
             UserData=Base64(bash_file)
         )
     )
+
+    asg_azs = [Join('', [Ref('AWS::Region'), az]) for az in AVAILABILITY_ZONES]
 
     # Create the babysitter autoscaling group
     babysitter_asg_name = '.'.join(['babysitter', CLOUDNAME, CLOUDENV])
     babysitter_asg = t.add_resource(
         AutoScalingGroup(
             "BabysitterASG",
-            AvailabilityZones=GetAZs(""),
+            AvailabilityZones=asg_azs,
             DesiredCapacity="1",
             LaunchConfigurationName=Ref(babysitter_launchcfg),
             MinSize="1",
@@ -555,16 +566,25 @@ def create_cfn_template(conf_file, outfile):
         )
     )
 
+    zookeeper_instance_profile = t.add_resource(
+        InstanceProfile(
+            "zookeeperInstanceProfile",
+            Path="/",
+            Roles=[Ref(zookeeper_iam_role)],
+            DependsOn=zookeeper_iam_role.title
+        )
+    )
+
     # Launch Configuration for zookeepers
     zookeeper_launchcfg = t.add_resource(
         LaunchConfiguration(
             "ZookeeperLaunchConfiguration",
             ImageId=FindInMap('RegionMap', region, 'INSTANCESTOREAMI'),
             InstanceType=Ref(zookeeper_instance_class),
-            IamInstanceProfile=Ref(zookeeper_iam_role),
+            IamInstanceProfile=Ref(zookeeper_instance_profile),
             KeyName=Ref(keyname_param),
             SecurityGroups=[Ref(zookeeper_sg), Ref(ssh_sg)],
-            DependsOn=[zookeeper_iam_role.title, zookeeper_sg.title, zookeeper_sg.title, ssh_sg.title]
+            DependsOn=[zookeeper_instance_profile.title, zookeeper_sg.title, zookeeper_sg.title, ssh_sg.title]
         )
     )
 
@@ -573,7 +593,7 @@ def create_cfn_template(conf_file, outfile):
     zookeeper_asg = t.add_resource(
         AutoScalingGroup(
             "ZookeeperASG",
-            AvailabilityZones=GetAZs(""),
+            AvailabilityZones=asg_azs,
             DesiredCapacity="3",
             LaunchConfigurationName=Ref(zookeeper_launchcfg),
             MinSize="3",
