@@ -406,13 +406,13 @@ def create_cfn_template(conf_file, outfile):
 
     # this is the standard  AssumeRolePolicyStatement block
     assume_role_policy = {
+            "Version": "2012-10-17",
             "Statement": [{
-                "Version": "2012-10-17",
                 "Effect": "Allow",
                 "Principal": {
                     "Service": [ "ec2.amazonaws.com" ]
                 },
-                "Action": "sts::AssumeRole",
+                "Action": ["sts:AssumeRole"],
             }]
         }
 
@@ -514,8 +514,8 @@ def create_cfn_template(conf_file, outfile):
                 IpProtocol='tcp',
                 FromPort=port,
                 ToPort=port,
-                GroupName=Ref(zookeeper_sg),
-                SourceSecurityGroupName=Ref(zookeeper_sg),
+                GroupId=Ref(zookeeper_sg),
+                SourceSecurityGroupId=Ref(zookeeper_sg),
                 DependsOn=zookeeper_sg.title
             )
         )
