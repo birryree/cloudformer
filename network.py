@@ -2,10 +2,18 @@ import yaml
 import argparse
 import json
 
-from troposphere import Parameter, Ref, Tags, Template
-from troposphere import Join, Output, Select, FindInMap
+from troposphere import Parameter, Ref, Tags, Template, GetAtt
+from troposphere import Join, Output, Select, FindInMap, Base64
+from troposphere import GetAZs
+from troposphere import Equals
 
+from troposphere.autoscaling import LaunchConfiguration, AutoScalingGroup, Tag
+from troposphere.autoscaling import Metadata, NotificationConfiguration
+from troposphere.autoscaling import EC2_INSTANCE_TERMINATE
+from troposphere.cloudwatch import Alarm, MetricDimension
+from troposphere.iam import Role, Group, PolicyType, LoginProfile, Policy
 from troposphere.ec2 import NetworkAcl, NetworkInterfaceProperty
+from troposphere.ec2 import BlockDeviceMapping, EBSBlockDevice
 from troposphere.ec2 import Route
 from troposphere.ec2 import SubnetRouteTableAssociation
 from troposphere.ec2 import Subnet
@@ -18,14 +26,25 @@ from troposphere.ec2 import SubnetNetworkAclAssociation
 from troposphere.ec2 import VPNConnection
 from troposphere.ec2 import InternetGateway
 from troposphere.ec2 import VPCGatewayAttachment
-from troposphere.ec2 import SecurityGroup, SecurityGroupRule
+from troposphere.ec2 import SecurityGroup, SecurityGroupRule, SecurityGroupIngress
 from troposphere.ec2 import Instance
+from troposphere.sqs import Queue, RedrivePolicy
+from troposphere.sns import Topic, Subscription
+from troposphere.s3 import Bucket
 
 def _create_parser():
     parser = argparse.ArgumentParser(prog='network.py')
     parser.add_argument('-c', '--config', type=str, required=True, help='The configuration YAML file to use to generate the Cloudformation template')
     parser.add_argument('-o', '--outfile', type=str, help='The file to write the Cloudformation template to')
     return parser
+
+def sanitize_id(*args):
+    '''This sanitizes logical identifiers for Cloudformation as they are not allowed
+    to have anything but [A-Za-z0-9]'''
+
+    identifier = ''.join(args)
+    return ''.join([c for c in identifier if c.isalnum()])
+
 
 def create_cfn_template(conf_file, outfile):
     with open (conf_file, 'r') as yfile:
@@ -34,8 +53,11 @@ def create_cfn_template(conf_file, outfile):
 
     DEFAULT_ROUTE = '0.0.0.0/0'
     CIDR_PREFIX= infra['network']['cidr_16_prefix']
-    VPC_NAME = infra['name']
-    PRIVATE_SUBNETS = infra['network']['private_subnets']
+    CLOUDNAME = infra['cloudname']
+    CLOUDENV = infra['env']
+    USE_PRIVATE_SUBNETS = infra['network']['private_subnets']
+
+    VPC_NAME = sanitize_id(CLOUDNAME, CLOUDENV)
 
     t = Template()
     t.add_version('2010-09-09')
@@ -45,7 +67,9 @@ def create_cfn_template(conf_file, outfile):
     # Parameters for the Cloudformation Template
     t.add_mapping('RegionMap',
         {
-            'us-east-1': {'NATAMI': 'ami-184dc970'},
+            'us-east-1': {'NATAMI': 'ami-184dc970',
+                          'EBSAMI': 'ami-86562dee',
+                          'INSTANCESTOREAMI': 'ami-cc5229a4'},
             'us-west-1': {'NATAMI': 'ami-a98396ec'},
             'us-west-2': {'NATAMI': 'ami-290f4119'},
             'eu-west-1': {'NATAMI': 'ami-14913f63'},
@@ -54,19 +78,70 @@ def create_cfn_template(conf_file, outfile):
             'ap-southeast-2': { 'NATAMI': 'ami-893f53b3'},
         })
 
+    allowed_instance_values = ['t2.micro', 't2.medium', 't2.medium', 'm3.medium',
+                       'm3.large', 'm3.xlarge', 'c3.large', 'c3.xlarge']
+
+
     nat_instance_class = t.add_parameter(Parameter(
         'NatInstanceType', Type='String', Default='t2.micro',
         Description='NAT instance type',
-        AllowedValues=['t2.micro', 't2.medium', 't2.medium', 'm3.medium',
-                       'm3.large', 'm3.xlarge', 'c3.large', 'c3.xlarge'],
+        AllowedValues=allowed_instance_values,
         ConstraintDescription='Instance size must be a valid instance type'
     ))
+
+    babysitter_instance_class = t.add_parameter(Parameter(
+        'BabysitterInstanceType', Type='String', Default='t2.micro',
+        Description='Chef Babysitter instance type',
+        AllowedValues=allowed_instance_values,
+        ConstraintDescription='Instance size must be a valid instance type'
+    ))
+
+    zookeeper_instance_class = t.add_parameter(Parameter(
+        'ZookeeperInstanceType', Type='String', Default='m3.medium',
+        Description='Zookeeper instance type',
+        AllowedValues=allowed_instance_values,
+        ConstraintDescription='Instance size must be a valid instance type'
+    ))
+
+    create_cloudstrap_bucket = t.add_parameter(
+        Parameter(
+            'CreateCloudstrapBucket',
+            Type='String',
+            Description='Whether or not to create the Cloudstrap bucket',
+            Default='yes',
+            AllowedValues=['yes', 'no'],
+            ConstraintDescription='Answer must be yes or no'
+        )
+    )
+
+    create_zookeeper_bucket = t.add_parameter(
+        Parameter(
+            'CreateZookeeperBucket',
+            Type='String',
+            Description='Whether or not to create the Zookeeper bucket. This option is provided in case the bucket already exists.',
+            Default='yes',
+            AllowedValues=['yes', 'no'],
+            ConstraintDescription='Answer must be yes or no'
+        )
+    )
 
     # An EC2 keypair to use
     keyname_param = t.add_parameter(Parameter(
         'KeyName', Type='AWS::EC2::KeyPair::KeyName',
         Description='Name of an existing EC2 KeyPair to enable SSH access'
     ))
+
+    conditions = {
+        "CloudstrapBucketCondition": Equals(
+            Ref(create_cloudstrap_bucket), "yes"
+        ),
+        "ZookeeperBucketCondition": Equals(
+            Ref(create_zookeeper_bucket), "yes"
+        )
+    }
+
+    for c in conditions:
+        t.add_condition(c, conditions[c])
 
     # Set the AZs this template creates resources in
     AVAILABILITY_ZONES = ['c', 'd', 'e']
@@ -125,6 +200,28 @@ def create_cfn_template(conf_file, outfile):
         SecurityGroupEgress=nat_egress_rules,
         DependsOn=vpc.title
     ))
+
+    # Add in a security group for SSH access from the internets
+    ssh_ingress_rules = [
+        SecurityGroupRule(
+            IpProtocol='tcp', CidrIp=DEFAULT_ROUTE, FromPort=p, ToPort=p
+        ) for p in [22]
+    ]
+
+    ssh_sg = t.add_resource(SecurityGroup(
+        "SSHAccessibleSecurityGroup",
+        GroupDescription="Allow SSH access from public",
+        VpcId=Ref(vpc),
+        SecurityGroupIngress=ssh_ingress_rules,
+        DependsOn=vpc.title,
+        Tags=Tags(Name='.'.join(['ssh-accessible', CLOUDNAME, CLOUDENV]))
+    ))
+
+
+    zookeeper_sg = t.add_resource
+
+    platform_subnets = list()
+    master_subnets = list()
 
     for idx, zone in enumerate(AVAILABILITY_ZONES):
         region = Ref('AWS::Region')
@@ -189,7 +286,7 @@ def create_cfn_template(conf_file, outfile):
 
         subnets = list()
 
-        subnet_identifier = 'private' if PRIVATE_SUBNETS else 'public'
+        subnet_identifier = 'private' if USE_PRIVATE_SUBNETS else 'public'
 
         # Create worker subnets
         worker_subnet = Subnet(
@@ -214,6 +311,7 @@ def create_cfn_template(conf_file, outfile):
         )
 
         subnets.append(platform_subnet)
+        platform_subnets.append(platform_subnet)
 
         # Create the master subnet
         master_subnet = Subnet('{0}{1}MasterSubnet{2}'.format(VPC_NAME, subnet_identifier, zone.upper()),
@@ -225,9 +323,10 @@ def create_cfn_template(conf_file, outfile):
         )
 
         subnets.append(master_subnet)
+        master_subnets.append(master_subnet)
 
         # Associate every subnet with the private routing table
-        routing_table = private_rt if PRIVATE_SUBNETS else public_rt
+        routing_table = private_rt if USE_PRIVATE_SUBNETS else public_rt
         for psn in subnets:
             t.add_resource(psn)
             t.add_resource(SubnetRouteTableAssociation(
@@ -237,12 +336,260 @@ def create_cfn_template(conf_file, outfile):
                 DependsOn=psn.title
             ))
 
+
+    # Build an S3 bucket for this region's Cloudstrap
+    cloudstrap_bucket_name = Join('.', ['cloudstrap', CLOUDNAME, region, CLOUDENV, 'leafme'])
+    cloudstrap_bucket = t.add_resource(
+        Bucket("CloudstrapBucket",
+            BucketName=cloudstrap_bucket_name,
+            DeletionPolicy='Retain',
+            Condition="CloudstrapBucketCondition"
+        )
+    )
+
+    # Babysitter Stuff (monitoring instances for death)
+    # Build an SQS Queue associated with every environment
+
+    # Define a parameter for where alerts go
+    babysitter_email_param = t.add_parameter(Parameter(
+        'BabysitterAlarmEmail',
+        Default='devops@leaf.me',
+        Description='Email address to notify if there are issues in the babysitter queue',
+        Type='String'
+    ))
+
+    qname = '_'.join(['chef-deregistration', CLOUDNAME, CLOUDENV])
+    queue = t.add_resource(Queue(sanitize_id(qname),
+                VisibilityTimeout=60,
+                MessageRetentionPeriod=1209600,
+                MaximumMessageSize=16384,
+                QueueName=qname,
+            ))
+
+    alert_topic = t.add_resource(
+        Topic(
+            "BabysitterAlarmTopic",
+            DisplayName='Babysitter Alarm',
+            TopicName=qname,
+            Subscription=[
+                Subscription(
+                    Endpoint=Ref(babysitter_email_param),
+                    Protocol='email'
+                ),
+            ],
+            DependsOn=queue.title
+        )
+    )
+
+    queue_depth_alarm = t.add_resource(
+        Alarm(
+            "BabysitterQueueDepthAlarm",
+            AlarmDescription='Alarm if the queue depth grows beyond 200 messages',
+            Namespace="AWS/SQS",
+            MetricName="ApproximateNumberOfMessagesVisible",
+            Dimensions=[
+                MetricDimension(
+                    Name="QueueName",
+                    Value=GetAtt(queue, "QueueName")
+                )
+            ],
+            Statistic="Sum",
+            Period="300",
+            EvaluationPeriods="1",
+            Threshold="200",
+            ComparisonOperator="GreaterThanThreshold",
+            AlarmActions=[Ref(alert_topic), ],
+            InsufficientDataActions=[Ref(alert_topic), ],
+            DependsOn=alert_topic.title
+        ),
+    )
+
+    # this is the standard  AssumeRolePolicyStatement block
+    assume_role_policy = {
+            "Statement": [{
+                "Version": "2012-10-17",
+                "Effect": "Allow",
+                "Principal": {
+                    "Service": [ "ec2.amazonaws.com" ]
+                },
+                "Action": "sts::AssumeRole",
+            }]
+        }
+
+    # Create IAM role for the babysitter instance
+    # load the policies
+    with open('babysitter_policy.json', 'r') as bsp, open('default_policy.json', 'r') as dp:
+        babysitter_policy = json.load(bsp)
+        default_policy = json.load(dp)
+
+    babysitter_role_name = '.'.join(['babysitter', CLOUDNAME, CLOUDENV])
+    babysitter_iam_role = t.add_resource(
+        Role(
+            "BabysitterIamRole",
+            AssumeRolePolicyDocument=assume_role_policy,
+            Path="/",
+            Policies=[
+                Policy(
+                    PolicyName="BabySitterPolicy",
+                    PolicyDocument=babysitter_policy
+                ),
+                Policy(
+                    PolicyName="BabySitterDefaultPolicy",
+                    PolicyDocument=default_policy
+                )
+            ],
+            DependsOn=vpc.title
+        )
+    )
+
+    with open('cloud-init.bash', 'r') as shfile:
+        bash_file = shfile.read()
+
+    # Create babysitter launch configuration
+    babysitter_launchcfg = t.add_resource(
+        LaunchConfiguration(
+            "BabysitterLaunchConfiguration",
+            ImageId=FindInMap('RegionMap', region, 'EBSAMI'),
+            InstanceType=Ref(babysitter_instance_class),
+            IamInstanceProfile=Ref(babysitter_iam_role),
+            BlockDeviceMappings=[
+                BlockDeviceMapping(
+                    DeviceName="/dev/sda1",
+                    Ebs=EBSBlockDevice(
+                        DeleteOnTermination=True
+                    )
+                )
+            ],
+            KeyName=Ref(keyname_param),
+            SecurityGroups=[Ref(ssh_sg)],
+            DependsOn=[babysitter_iam_role.title, ssh_sg.title],
+            UserData=Base64(bash_file)
+        )
+    )
+
+    # Create the babysitter autoscaling group
+    babysitter_asg_name = '.'.join(['babysitter', CLOUDNAME, CLOUDENV])
+    babysitter_asg = t.add_resource(
+        AutoScalingGroup(
+            "BabysitterASG",
+            AvailabilityZones=GetAZs(""),
+            DesiredCapacity="1",
+            LaunchConfigurationName=Ref(babysitter_launchcfg),
+            MinSize="1",
+            MaxSize="1",
+            NotificationConfiguration=NotificationConfiguration(
+                TopicARN=Ref(alert_topic),
+                NotificationTypes=[
+                    EC2_INSTANCE_TERMINATE
+                ]
+            ),
+            VPCZoneIdentifier=[Ref(sn) for sn in platform_subnets]
+        )
+    )
+
+    # Zookeeper stuff!
+    # BEGIN ZOOKEPER
+    zookeeper_ingress_rules = [
+        SecurityGroupRule(
+            IpProtocol='tcp', CidrIp='{0}.0.0/16'.format(CIDR_PREFIX), FromPort=p, ToPort=p
+        ) for p in [2181]
+    ]
+
+    zookeeper_sg = t.add_resource(
+        SecurityGroup(
+            "ZookeeperSecurityGroup",
+            GroupDescription="Security Group for ZooKeeper instances",
+            VpcId=Ref(vpc),
+            SecurityGroupIngress=zookeeper_ingress_rules,
+            DependsOn=vpc.title
+        )
+    )
+
+    # Now add in another ingress rule that allows zookeepers to talk to each other
+    # in the same SG
+    for port in [2888, 3888]:
+        t.add_resource(
+            SecurityGroupIngress(
+                "ZookeeperSelfIngress{0}".format(port),
+                IpProtocol='tcp',
+                FromPort=port,
+                ToPort=port,
+                GroupName=Ref(zookeeper_sg),
+                SourceSecurityGroupName=Ref(zookeeper_sg),
+                DependsOn=zookeeper_sg.title
+            )
+        )
+
+    # Create the zookeeper s3 bucket
+    zookeeper_bucket_name = Join('.', ['zookeeper', CLOUDNAME, region, CLOUDENV, 'leafme'])
+    cloudstrap_bucket = t.add_resource(
+        Bucket(
+            "ZookeeperBucket",
+            BucketName=zookeeper_bucket_name,
+            DeletionPolicy='Retain',
+            Condition="ZookeeperBucketCondition"
+        )
+    )
+
+    # IAM role for zookeeper
+    with open('zookeeper_policy.json', 'r') as zkp:
+        zookeeper_policy = json.load(zkp)
+
+    zookeeper_role_name = '.'.join(['zookeeper', CLOUDNAME, CLOUDENV])
+    zookeeper_iam_role = t.add_resource(
+        Role(
+            "ZookeeperIamRole",
+            AssumeRolePolicyDocument=assume_role_policy,
+            Path="/",
+            Policies=[
+                Policy(
+                    PolicyName="ZookeeperDefaultPolicy",
+                    PolicyDocument=default_policy
+                ),
+                Policy(
+                    PolicyName="ZookeeperPolicy",
+                    PolicyDocument=zookeeper_policy
+                )
+            ],
+            DependsOn=vpc.title
+        )
+    )
+
+    # Launch Configuration for zookeepers
+    zookeeper_launchcfg = t.add_resource(
+        LaunchConfiguration(
+            "ZookeeperLaunchConfiguration",
+            ImageId=FindInMap('RegionMap', region, 'INSTANCESTOREAMI'),
+            InstanceType=Ref(zookeeper_instance_class),
+            IamInstanceProfile=Ref(zookeeper_iam_role),
+            KeyName=Ref(keyname_param),
+            SecurityGroups=[Ref(zookeeper_sg), Ref(ssh_sg)],
+            DependsOn=[zookeeper_iam_role.title, zookeeper_sg.title, zookeeper_sg.title, ssh_sg.title]
+        )
+    )
+
+    # Create the babysitter autoscaling group
+    zookeeper_asg_name = '.'.join(['zookeeper', CLOUDNAME, CLOUDENV])
+    zookeeper_asg = t.add_resource(
+        AutoScalingGroup(
+            "ZookeeperASG",
+            AvailabilityZones=GetAZs(""),
+            DesiredCapacity="3",
+            LaunchConfigurationName=Ref(zookeeper_launchcfg),
+            MinSize="3",
+            MaxSize="3",
+            VPCZoneIdentifier=[Ref(sn) for sn in master_subnets]
+        )
+    )
+
+
+    # END ZOOKEEPER
+
     if not outfile:
         print(t.to_json())
     else:
         with open(outfile, 'w') as ofile:
             print >> ofile, t.to_json()
-            
 
 if __name__ == '__main__':
     arg_parser = _create_parser()
