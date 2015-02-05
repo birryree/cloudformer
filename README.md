@@ -18,6 +18,6 @@ It's easiest to use `virtualenv` run this (so I don't pollute your environment).
     virtualenv venv
     source venv/bin/activate
     pip install -r requirements.pip
-    python network.py -c conf.yml > infra.template # you can also specify '-o' argument for a file name
+    python network.py -c conf.yml -o infra.template
 
 This will generate an `infra.template` file that you can use for CloudFormation.
