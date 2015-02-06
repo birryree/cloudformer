@@ -618,7 +618,7 @@ def create_cfn_template(conf_file, outfile):
         )
     )
 
-    # Create the babysitter autoscaling group
+    # Create the zookeeper autoscaling group
     zookeeper_asg_name = '.'.join(['zookeeper', CLOUDNAME, CLOUDENV])
     zookeeper_asg = t.add_resource(
         AutoScalingGroup(
@@ -631,9 +631,103 @@ def create_cfn_template(conf_file, outfile):
             VPCZoneIdentifier=[Ref(sn) for sn in master_subnets]
         )
     )
-
-
     # END ZOOKEEPER
+
+
+
+
+
+
+    # VPN stuff!
+    # BEGIN VPN
+    vpn_ingress_rules = [
+        SecurityGroupRule(
+            IpProtocol='tcp', CidrIp='{0}.0.0/16'.format(CIDR_PREFIX), FromPort=p, ToPort=p
+        ) for p in [22, 1194]
+    ]
+
+    vpn_sg = t.add_resource(
+        SecurityGroup(
+            "VPNSecurityGroup",
+            GroupDescription="Security Group for VPN ingress.",
+            VpcId=Ref(vpc),
+            SecurityGroupIngress=vpn_ingress_rules,
+            DependsOn=vpc.title
+        )
+    )
+
+    # IAM role for vpn
+    vpn_policy = json.loads(subprocess.check_output([
+        "erber", "-o", "env=" + CLOUDENV,
+                 "-o", "cloud=" + CLOUDNAME,
+                 "-o", "region=" + REGION,
+                 "./lib/templates/vpn_policy.json.erb"
+    ]))
+
+    vpn_role_name = '.'.join(['vpn', CLOUDNAME, CLOUDENV])
+    vpn_iam_role = t.add_resource(
+        Role(
+            "VPNIamRole",
+            AssumeRolePolicyDocument=assume_role_policy,
+            Path="/",
+            Policies=[
+                Policy(
+                    PolicyName="VPNDefaultPolicy",
+                    PolicyDocument=default_policy
+                ),
+                Policy(
+                    PolicyName="VPNPolicy",
+                    PolicyDocument=vpn_policy
+                )
+            ],
+            DependsOn=vpc.title
+        )
+    )
+
+    vpn_instance_profile = t.add_resource(
+        InstanceProfile(
+            "vpnInstanceProfile",
+            Path="/",
+            Roles=[Ref(vpn_iam_role)],
+            DependsOn=vpn_iam_role.title
+        )
+    )
+
+    vpn_user_data = subprocess.check_output([
+        "erber", "-o", "env=" + CLOUDENV,
+                 "-o", "cloud=" + CLOUDNAME,
+                 "-o", "deploy=vpn",
+                 "./lib/templates/cloud-init.bash.erb"
+    ])
+
+    # Launch Configuration for vpns
+    vpn_launchcfg = t.add_resource(
+        LaunchConfiguration(
+            "VPNLaunchConfiguration",
+            ImageId=FindInMap('RegionMap', region, 'INSTANCESTOREAMI'),
+            InstanceType=Ref(vpn_instance_class),
+            IamInstanceProfile=Ref(vpn_instance_profile),
+            KeyName=Ref(keyname_param),
+            SecurityGroups=[Ref(vpn_sg), Ref(ssh_sg)],
+            DependsOn=[vpn_instance_profile.title, vpn_sg.title, vpn_sg.title, ssh_sg.title],
+            UserData=Base64(vpn_user_data)
+        )
+    )
+
+    # Create the babysitter autoscaling group
+    vpn_asg_name = '.'.join(['vpn', CLOUDNAME, CLOUDENV])
+    vpn_asg = t.add_resource(
+        AutoScalingGroup(
+            "VPNASG",
+            AvailabilityZones=asg_azs,
+            DesiredCapacity="1",
+            LaunchConfigurationName=Ref(vpn_launchcfg),
+            MinSize="1",
+            MaxSize="1",
+            VPCZoneIdentifier=[Ref(sn) for sn in master_subnets]
+        )
+    )
+    # END VPN
 
     if not outfile:
         print(t.to_json())
