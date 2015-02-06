@@ -2,6 +2,7 @@ import yaml
 import argparse
 import json
 import os
+import subprocess
 
 from troposphere import Parameter, Ref, Tags, Template, GetAtt
 from troposphere import Join, Output, Select, FindInMap, Base64
@@ -58,6 +59,7 @@ def create_cfn_template(conf_file, outfile):
     CLOUDNAME = infra['cloudname']
     CLOUDENV = infra['env']
     USE_PRIVATE_SUBNETS = infra['network']['private_subnets']
+    REGION = infra['region']
 
     VPC_NAME = sanitize_id(CLOUDNAME, CLOUDENV)
 
@@ -418,6 +420,13 @@ def create_cfn_template(conf_file, outfile):
             }]
         }
 
+
+    default_policy = json.loads(subprocess.check_output([
+                            "erber", "-o", "env=" + CLOUDENV,
+                             "-o", "cloud=" + CLOUDNAME,
+                             "-o", "region=" + REGION,
+                             "./lib/templates/default_policy.json.erb"
+                        ]))
     # Create IAM role for the babysitter instance
     # load the policies
     babysitter_role_name = '.'.join(['babysitter', CLOUDNAME, CLOUDENV])
@@ -429,21 +438,16 @@ def create_cfn_template(conf_file, outfile):
             Policies=[
                 Policy(
                     PolicyName="BabySitterPolicy",
-                    PolicyDocument=subprocess.check_output([
+                    PolicyDocument=json.loads(subprocess.check_output([
                                         "erber", "-o", "env=" + CLOUDENV, 
                                                  "-o", "cloud=" + CLOUDNAME,
-                                                 "-o", "region=" + GIMME_REGION_PLZ,
+                                                 "-o", "region=" + REGION,
                                                  "./lib/templates/babysitter_policy.json.erb"
-                                    ])
+                                    ]))
                 ),
                 Policy(
                     PolicyName="BabySitterDefaultPolicy",
-                    PolicyDocument=subprocess.check_output([
-                                        "erber", "-o", "env=" + CLOUDENV, 
-                                                 "-o", "cloud=" + CLOUDNAME,
-                                                 "-o", "region=" + GIMME_REGION_PLZ,
-                                                 "./lib/templates/default_policy.json.erb"
-                                    ])
+                    PolicyDocument=default_policy
                 )
             ],
             DependsOn=vpc.title
@@ -557,6 +561,13 @@ def create_cfn_template(conf_file, outfile):
     )
 
     # IAM role for zookeeper
+    zookeeper_policy = json.loads(subprocess.check_output([
+        "erber", "-o", "env=" + CLOUDENV,
+                 "-o", "cloud=" + CLOUDNAME,
+                 "-o", "region=" + REGION,
+                 "./lib/templates/zookeeper_policy.json.erb"
+    ]))
+
     with open('zookeeper_policy.json', 'r') as zkp:
         zookeeper_policy = json.load(zkp)
 
@@ -590,7 +601,7 @@ def create_cfn_template(conf_file, outfile):
     )
 
     zookeepeer_user_data = subprocess.check_output([
-        "erber", "-o", "env=" + CLOUDENV, 
+        "erber", "-o", "env=" + CLOUDENV,
                  "-o", "cloud=" + CLOUDNAME,
                  "-o", "deploy=zookeeper",
                  "./lib/templates/cloud-init.bash.erb"
