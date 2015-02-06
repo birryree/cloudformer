@@ -1,6 +1,7 @@
 import yaml
 import argparse
 import json
+import os
 
 from troposphere import Parameter, Ref, Tags, Template, GetAtt
 from troposphere import Join, Output, Select, FindInMap, Base64
@@ -30,6 +31,8 @@ from troposphere.ec2 import Instance
 from troposphere.sqs import Queue, RedrivePolicy
 from troposphere.sns import Topic, Subscription
 from troposphere.s3 import Bucket
+
+os.path.dirname(os.path.realpath(__file__))
 
 def _create_parser():
     parser = argparse.ArgumentParser(prog='network.py')
@@ -417,10 +420,6 @@ def create_cfn_template(conf_file, outfile):
 
     # Create IAM role for the babysitter instance
     # load the policies
-    with open('babysitter_policy.json', 'r') as bsp, open('default_policy.json', 'r') as dp:
-        babysitter_policy = json.load(bsp)
-        default_policy = json.load(dp)
-
     babysitter_role_name = '.'.join(['babysitter', CLOUDNAME, CLOUDENV])
     babysitter_iam_role = t.add_resource(
         Role(
@@ -430,11 +429,21 @@ def create_cfn_template(conf_file, outfile):
             Policies=[
                 Policy(
                     PolicyName="BabySitterPolicy",
-                    PolicyDocument=babysitter_policy
+                    PolicyDocument=subprocess.check_output([
+                                        "erber", "-o", "env=" + CLOUDENV, 
+                                                 "-o", "cloud=" + CLOUDNAME,
+                                                 "-o", "region=" + GIMME_REGION_PLZ,
+                                                 "./lib/templates/babysitter_policy.json.erb"
+                                    ])
                 ),
                 Policy(
                     PolicyName="BabySitterDefaultPolicy",
-                    PolicyDocument=default_policy
+                    PolicyDocument=subprocess.check_output([
+                                        "erber", "-o", "env=" + CLOUDENV, 
+                                                 "-o", "cloud=" + CLOUDNAME,
+                                                 "-o", "region=" + GIMME_REGION_PLZ,
+                                                 "./lib/templates/default_policy.json.erb"
+                                    ])
                 )
             ],
             DependsOn=vpc.title
@@ -451,8 +460,13 @@ def create_cfn_template(conf_file, outfile):
     )
 
 
-    with open('cloud-init.bash', 'r') as shfile:
-        bash_file = shfile.read()
+    babysitter_user_data = subprocess.check_output([
+        "erber", "-o", "env=" + CLOUDENV, 
+                 "-o", "cloud=" + CLOUDNAME,
+                 "-o", "deploy=babysitter",
+                 "./lib/templates/cloud-init.bash.erb"
+    ])
+
 
     # Create babysitter launch configuration
     babysitter_launchcfg = t.add_resource(
@@ -472,7 +486,7 @@ def create_cfn_template(conf_file, outfile):
             KeyName=Ref(keyname_param),
             SecurityGroups=[Ref(ssh_sg)],
             DependsOn=[babysitter_instance_profile.title, ssh_sg.title],
-            UserData=Base64(bash_file)
+            UserData=Base64(babysitter_user_data)
         )
     )
 
@@ -575,6 +589,13 @@ def create_cfn_template(conf_file, outfile):
         )
     )
 
+    zookeepeer_user_data = subprocess.check_output([
+        "erber", "-o", "env=" + CLOUDENV, 
+                 "-o", "cloud=" + CLOUDNAME,
+                 "-o", "deploy=zookeeper",
+                 "./lib/templates/cloud-init.bash.erb"
+    ])
+
     # Launch Configuration for zookeepers
     zookeeper_launchcfg = t.add_resource(
         LaunchConfiguration(
@@ -584,7 +605,8 @@ def create_cfn_template(conf_file, outfile):
             IamInstanceProfile=Ref(zookeeper_instance_profile),
             KeyName=Ref(keyname_param),
             SecurityGroups=[Ref(zookeeper_sg), Ref(ssh_sg)],
-            DependsOn=[zookeeper_instance_profile.title, zookeeper_sg.title, zookeeper_sg.title, ssh_sg.title]
+            DependsOn=[zookeeper_instance_profile.title, zookeeper_sg.title, zookeeper_sg.title, ssh_sg.title],
+            UserData=Base64(zookeepeer_user_data)
         )
     )
 
