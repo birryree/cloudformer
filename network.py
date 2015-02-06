@@ -233,6 +233,7 @@ def create_cfn_template(conf_file, outfile):
 
     platform_subnets = list()
     master_subnets = list()
+    public_subnets = list()
 
     for idx, zone in enumerate(AVAILABILITY_ZONES):
         region = Ref('AWS::Region')
@@ -247,6 +248,7 @@ def create_cfn_template(conf_file, outfile):
             DependsOn=vpc.title,
             Tags=Tags(Name=Join('-', [VPC_NAME, 'public-subnet', full_region_descriptor]))
         ))
+        public_subnets.append(public_subnet)
 
         # Associate the public routing table with the subnet
         t.add_resource(SubnetRouteTableAssociation(
@@ -731,7 +733,7 @@ def create_cfn_template(conf_file, outfile):
             LaunchConfigurationName=Ref(vpn_launchcfg),
             MinSize="1",
             MaxSize="1",
-            VPCZoneIdentifier=[Ref(sn) for sn in master_subnets]
+            VPCZoneIdentifier=[Ref(sn) for sn in public_subnets]
         )
     )
     # END VPN
