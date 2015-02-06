@@ -107,6 +107,13 @@ def create_cfn_template(conf_file, outfile):
         ConstraintDescription='Instance size must be a valid instance type'
     ))
 
+    vpn_instance_class = t.add_parameter(Parameter(
+        'VPNInstanceType', Type='String', Default='m3.medium',
+        Description='VPN instance type',
+        AllowedValues=allowed_instance_values,
+        ConstraintDescription='Instance size must be a valid instance type'
+    ))
+
     create_cloudstrap_bucket = t.add_parameter(
         Parameter(
             'CreateCloudstrapBucket',
