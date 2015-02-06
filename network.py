@@ -234,6 +234,7 @@ def create_cfn_template(conf_file, outfile):
     platform_subnets = list()
     master_subnets = list()
     public_subnets = list()
+    vpn_subnets = list()
 
     for idx, zone in enumerate(AVAILABILITY_ZONES):
         region = Ref('AWS::Region')
@@ -257,6 +258,17 @@ def create_cfn_template(conf_file, outfile):
             RouteTableId=Ref(public_rt),
             DependsOn=public_subnet.title
         ))
+
+        vpn_subnet = t.add_resource(
+            Subnet(
+                '{0}VpnSubnet{1}'.format(VPC_NAME, zone),
+                VpcId=Ref(vpc),
+                CidrBlock='{0}.{1}.0/24'.format(CIDR_PREFIX, 60 + idx),
+                AvailabilityZone=full_region_descriptor,
+                DependsOn=vpc.title,
+                Tags=Tags(Name=Join('.', [full_region_descriptor, CLOUDNAME, CLOUDENV, "vpn-client"]))
+        ))
+        vpn_subnets.append(vpn_subnet)
 
         # Create the NAT in the public subnet
         nat_name = '{0}Nat{1}'.format(VPC_NAME, zone)
@@ -734,7 +746,7 @@ def create_cfn_template(conf_file, outfile):
             LaunchConfigurationName=Ref(vpn_launchcfg),
             MinSize="1",
             MaxSize="1",
-            VPCZoneIdentifier=[Ref(sn) for sn in public_subnets]
+            VPCZoneIdentifier=[Ref(sn) for sn in vpn_subnets]
         )
     )
     # END VPN
