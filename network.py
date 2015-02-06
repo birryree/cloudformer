@@ -719,6 +719,7 @@ def create_cfn_template(conf_file, outfile):
             KeyName=Ref(keyname_param),
             SecurityGroups=[Ref(vpn_sg), Ref(ssh_sg)],
             DependsOn=[vpn_instance_profile.title, vpn_sg.title, vpn_sg.title, ssh_sg.title],
+            AssociatePublicIpAddress=True,
             UserData=Base64(vpn_user_data)
         )
     )
