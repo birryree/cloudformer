@@ -1,6 +1,8 @@
 import yaml
 import argparse
 import json
+import os
+import subprocess
 
 from troposphere import Parameter, Ref, Tags, Template, GetAtt
 from troposphere import Join, Output, Select, FindInMap, Base64
@@ -31,6 +33,8 @@ from troposphere.sqs import Queue, RedrivePolicy
 from troposphere.sns import Topic, Subscription
 from troposphere.s3 import Bucket
 
+os.path.dirname(os.path.realpath(__file__))
+
 def _create_parser():
     parser = argparse.ArgumentParser(prog='network.py')
     parser.add_argument('-c', '--config', type=str, required=True, help='The configuration YAML file to use to generate the Cloudformation template')
@@ -55,6 +59,7 @@ def create_cfn_template(conf_file, outfile):
     CLOUDNAME = infra['cloudname']
     CLOUDENV = infra['env']
     USE_PRIVATE_SUBNETS = infra['network']['private_subnets']
+    REGION = infra['region']
 
     VPC_NAME = sanitize_id(CLOUDNAME, CLOUDENV)
 
@@ -415,12 +420,15 @@ def create_cfn_template(conf_file, outfile):
             }]
         }
 
+
+    default_policy = json.loads(subprocess.check_output([
+                            "erber", "-o", "env=" + CLOUDENV,
+                             "-o", "cloud=" + CLOUDNAME,
+                             "-o", "region=" + REGION,
+                             "./lib/templates/default_policy.json.erb"
+                        ]))
     # Create IAM role for the babysitter instance
     # load the policies
-    with open('babysitter_policy.json', 'r') as bsp, open('default_policy.json', 'r') as dp:
-        babysitter_policy = json.load(bsp)
-        default_policy = json.load(dp)
-
     babysitter_role_name = '.'.join(['babysitter', CLOUDNAME, CLOUDENV])
     babysitter_iam_role = t.add_resource(
         Role(
@@ -430,7 +438,12 @@ def create_cfn_template(conf_file, outfile):
             Policies=[
                 Policy(
                     PolicyName="BabySitterPolicy",
-                    PolicyDocument=babysitter_policy
+                    PolicyDocument=json.loads(subprocess.check_output([
+                                        "erber", "-o", "env=" + CLOUDENV, 
+                                                 "-o", "cloud=" + CLOUDNAME,
+                                                 "-o", "region=" + REGION,
+                                                 "./lib/templates/babysitter_policy.json.erb"
+                                    ]))
                 ),
                 Policy(
                     PolicyName="BabySitterDefaultPolicy",
@@ -451,8 +464,13 @@ def create_cfn_template(conf_file, outfile):
     )
 
 
-    with open('cloud-init.bash', 'r') as shfile:
-        bash_file = shfile.read()
+    babysitter_user_data = subprocess.check_output([
+        "erber", "-o", "env=" + CLOUDENV, 
+                 "-o", "cloud=" + CLOUDNAME,
+                 "-o", "deploy=babysitter",
+                 "./lib/templates/cloud-init.bash.erb"
+    ])
+
 
     # Create babysitter launch configuration
     babysitter_launchcfg = t.add_resource(
@@ -472,7 +490,7 @@ def create_cfn_template(conf_file, outfile):
             KeyName=Ref(keyname_param),
             SecurityGroups=[Ref(ssh_sg)],
             DependsOn=[babysitter_instance_profile.title, ssh_sg.title],
-            UserData=Base64(bash_file)
+            UserData=Base64(babysitter_user_data)
         )
     )
 
@@ -543,6 +561,13 @@ def create_cfn_template(conf_file, outfile):
     )
 
     # IAM role for zookeeper
+    zookeeper_policy = json.loads(subprocess.check_output([
+        "erber", "-o", "env=" + CLOUDENV,
+                 "-o", "cloud=" + CLOUDNAME,
+                 "-o", "region=" + REGION,
+                 "./lib/templates/zookeeper_policy.json.erb"
+    ]))
+
     with open('zookeeper_policy.json', 'r') as zkp:
         zookeeper_policy = json.load(zkp)
 
@@ -575,6 +600,13 @@ def create_cfn_template(conf_file, outfile):
         )
     )
 
+    zookeepeer_user_data = subprocess.check_output([
+        "erber", "-o", "env=" + CLOUDENV,
+                 "-o", "cloud=" + CLOUDNAME,
+                 "-o", "deploy=zookeeper",
+                 "./lib/templates/cloud-init.bash.erb"
+    ])
+
     # Launch Configuration for zookeepers
     zookeeper_launchcfg = t.add_resource(
         LaunchConfiguration(
@@ -584,7 +616,8 @@ def create_cfn_template(conf_file, outfile):
             IamInstanceProfile=Ref(zookeeper_instance_profile),
             KeyName=Ref(keyname_param),
             SecurityGroups=[Ref(zookeeper_sg), Ref(ssh_sg)],
-            DependsOn=[zookeeper_instance_profile.title, zookeeper_sg.title, zookeeper_sg.title, ssh_sg.title]
+            DependsOn=[zookeeper_instance_profile.title, zookeeper_sg.title, zookeeper_sg.title, ssh_sg.title],
+            UserData=Base64(zookeepeer_user_data)
         )
     )
 
