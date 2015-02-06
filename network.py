@@ -270,6 +270,15 @@ def create_cfn_template(conf_file, outfile):
         ))
         vpn_subnets.append(vpn_subnet)
 
+        # Associate the public routing table with the subnet
+        t.add_resource(SubnetRouteTableAssociation(
+            '{0}VpnRouteTableAssociation'.format(vpn_subnet.title),
+            SubnetId=Ref(vpn_subnet),
+            RouteTableId=Ref(public_rt),
+            DependsOn=vpn_subnet.title
+        ))
+
+
         # Create the NAT in the public subnet
         nat_name = '{0}Nat{1}'.format(VPC_NAME, zone)
         nat_instance = t.add_resource(Instance(
