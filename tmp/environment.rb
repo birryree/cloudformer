@@ -1,4 +1,4 @@
-name        "infra"
+name        "test-cloud_infra"
 description "the 'test-cloud' environment for 'infra'."
 
 override_attributes(
