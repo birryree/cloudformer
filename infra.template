@@ -1,0 +1,2059 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Conditions": {
+        "CloudstrapBucketCondition": {
+            "Fn::Equals": [
+                {
+                    "Ref": "CreateCloudstrapBucket"
+                },
+                "yes"
+            ]
+        },
+        "ZookeeperBucketCondition": {
+            "Fn::Equals": [
+                {
+                    "Ref": "CreateZookeeperBucket"
+                },
+                "yes"
+            ]
+        }
+    },
+    "Description": "This is a Cloudformation script that creates the base VPC across three AZs, with 1 public subnet, 3 private subnets, and proper NAT and routing tables.",
+    "Mappings": {
+        "RegionMap": {
+            "ap-northeast-1": {
+                "NATAMI": "ami-27d6e626"
+            },
+            "ap-southeast-1": {
+                "NATAMI": "ami-6aa38238"
+            },
+            "ap-southeast-2": {
+                "NATAMI": "ami-893f53b3"
+            },
+            "eu-west-1": {
+                "NATAMI": "ami-14913f63"
+            },
+            "us-east-1": {
+                "EBSAMI": "ami-86562dee",
+                "INSTANCESTOREAMI": "ami-cc5229a4",
+                "NATAMI": "ami-184dc970"
+            },
+            "us-west-1": {
+                "NATAMI": "ami-a98396ec"
+            },
+            "us-west-2": {
+                "NATAMI": "ami-290f4119"
+            }
+        }
+    },
+    "Parameters": {
+        "AvailabilityZones": {
+            "Default": "c,d,e",
+            "Description": "A list of three availability zone letters to distribute the subnets across.",
+            "Type": "CommaDelimitedList"
+        },
+        "BabysitterAlarmEmail": {
+            "Default": "wlee@leaf.me",
+            "Description": "Email address to notify if there are issues in the babysitter queue",
+            "Type": "String"
+        },
+        "BabysitterInstanceType": {
+            "AllowedValues": [
+                "t2.micro",
+                "t2.medium",
+                "t2.medium",
+                "m3.medium",
+                "m3.large",
+                "m3.xlarge",
+                "c3.large",
+                "c3.xlarge"
+            ],
+            "ConstraintDescription": "Instance size must be a valid instance type",
+            "Default": "t2.micro",
+            "Description": "Chef Babysitter instance type",
+            "Type": "String"
+        },
+        "CreateCloudstrapBucket": {
+            "AllowedValues": [
+                "yes",
+                "no"
+            ],
+            "ConstraintDescription": "Answer must be yes or no",
+            "Default": "no",
+            "Description": "Whether or not to create the Cloudstrap bucket",
+            "Type": "String"
+        },
+        "CreateZookeeperBucket": {
+            "AllowedValues": [
+                "yes",
+                "no"
+            ],
+            "ConstraintDescription": "Answer must be yes or no",
+            "Default": "no",
+            "Description": "Whether or not to create the Zookeeper bucket. This option is provided in case the bucket already exists.",
+            "Type": "String"
+        },
+        "KeyName": {
+            "Description": "Name of an existing EC2 KeyPair to enable SSH access",
+            "Type": "AWS::EC2::KeyPair::KeyName"
+        },
+        "NatInstanceType": {
+            "AllowedValues": [
+                "t2.micro",
+                "t2.medium",
+                "t2.medium",
+                "m3.medium",
+                "m3.large",
+                "m3.xlarge",
+                "c3.large",
+                "c3.xlarge"
+            ],
+            "ConstraintDescription": "Instance size must be a valid instance type",
+            "Default": "t2.micro",
+            "Description": "NAT instance type",
+            "Type": "String"
+        },
+        "ZookeeperInstanceType": {
+            "AllowedValues": [
+                "t2.micro",
+                "t2.medium",
+                "t2.medium",
+                "m3.medium",
+                "m3.large",
+                "m3.xlarge",
+                "c3.large",
+                "c3.xlarge"
+            ],
+            "ConstraintDescription": "Instance size must be a valid instance type",
+            "Default": "m3.medium",
+            "Description": "Zookeeper instance type",
+            "Type": "String"
+        }
+    },
+    "Resources": {
+        "BabysitterASG": {
+            "Properties": {
+                "AvailabilityZones": [
+                    {
+                        "Fn::Join": [
+                            "",
+                            [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "c"
+                            ]
+                        ]
+                    },
+                    {
+                        "Fn::Join": [
+                            "",
+                            [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "d"
+                            ]
+                        ]
+                    },
+                    {
+                        "Fn::Join": [
+                            "",
+                            [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "e"
+                            ]
+                        ]
+                    }
+                ],
+                "DesiredCapacity": "1",
+                "LaunchConfigurationName": {
+                    "Ref": "BabysitterLaunchConfiguration"
+                },
+                "MaxSize": "1",
+                "MinSize": "1",
+                "NotificationConfiguration": {
+                    "NotificationTypes": [
+                        "autoscaling:EC2_INSTANCE_TERMINATE"
+                    ],
+                    "TopicARN": {
+                        "Ref": "BabysitterAlarmTopic"
+                    }
+                },
+                "VPCZoneIdentifier": [
+                    {
+                        "Ref": "testcloudinfraprivatePlatformSubnetC"
+                    },
+                    {
+                        "Ref": "testcloudinfraprivatePlatformSubnetD"
+                    },
+                    {
+                        "Ref": "testcloudinfraprivatePlatformSubnetE"
+                    }
+                ]
+            },
+            "Type": "AWS::AutoScaling::AutoScalingGroup"
+        },
+        "BabysitterAlarmTopic": {
+            "DependsOn": "chefderegistrationtestcloudinfra",
+            "Properties": {
+                "DisplayName": "Babysitter Alarm",
+                "Subscription": [
+                    {
+                        "Endpoint": {
+                            "Ref": "BabysitterAlarmEmail"
+                        },
+                        "Protocol": "email"
+                    }
+                ],
+                "TopicName": "chef-deregistration_test-cloud_infra"
+            },
+            "Type": "AWS::SNS::Topic"
+        },
+        "BabysitterIamRole": {
+            "DependsOn": "VPC",
+            "Properties": {
+                "AssumeRolePolicyDocument": {
+                    "Statement": [
+                        {
+                            "Action": [
+                                "sts:AssumeRole"
+                            ],
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": [
+                                    "ec2.amazonaws.com"
+                                ]
+                            }
+                        }
+                    ],
+                    "Version": "2012-10-17"
+                },
+                "Path": "/",
+                "Policies": [
+                    {
+                        "PolicyDocument": {
+                            "Statement": [
+                                {
+                                    "Action": [
+                                        "sqs:GetQueueAttributes",
+                                        "sqs:GetQueueUrl",
+                                        "sqs:ListQueues",
+                                        "sqs:ReceiveMessage"
+                                    ],
+                                    "Effect": "Allow",
+                                    "Resource": [
+                                        "arn:aws:sqs:us-east-1:*:chef-deregistration_test-cloud_infra"
+                                    ],
+                                    "Sid": "Stmt1422912335000"
+                                },
+                                {
+                                    "Action": [
+                                        "sns:ConfirmSubscription",
+                                        "sns:GetEndpointAttributes",
+                                        "sns:GetTopicAttributes",
+                                        "sns:ListSubscriptions",
+                                        "sns:ListSubscriptionsByTopic",
+                                        "sns:ListTopics",
+                                        "sns:Publish",
+                                        "sns:Subscribe"
+                                    ],
+                                    "Effect": "Allow",
+                                    "Resource": [
+                                        "arn:aws:sns:us-east-1:*:chef-deregistration_test-cloud_infra"
+                                    ],
+                                    "Sid": "Stmt1422912907000"
+                                }
+                            ],
+                            "Version": "2012-10-17"
+                        },
+                        "PolicyName": "BabySitterPolicy"
+                    },
+                    {
+                        "PolicyDocument": {
+                            "Statement": [
+                                {
+                                    "Action": [
+                                        "s3:GetObject"
+                                    ],
+                                    "Effect": "Allow",
+                                    "Resource": [
+                                        "arn:aws:s3:::cloudstrap.test-cloud.us-east-1.infra.leafme/validator.pem"
+                                    ],
+                                    "Sid": ""
+                                },
+                                {
+                                    "Action": [
+                                        "ec2:CreateTags"
+                                    ],
+                                    "Effect": "Allow",
+                                    "Resource": [
+                                        "*"
+                                    ],
+                                    "Sid": ""
+                                }
+                            ],
+                            "Version": "2012-10-17"
+                        },
+                        "PolicyName": "BabySitterDefaultPolicy"
+                    }
+                ]
+            },
+            "Type": "AWS::IAM::Role"
+        },
+        "BabysitterLaunchConfiguration": {
+            "DependsOn": [
+                "babysitterInstanceProfile",
+                "SSHAccessibleSecurityGroup"
+            ],
+            "Properties": {
+                "BlockDeviceMappings": [
+                    {
+                        "DeviceName": "/dev/sda1",
+                        "Ebs": {
+                            "DeleteOnTermination": "true"
+                        }
+                    }
+                ],
+                "IamInstanceProfile": {
+                    "Ref": "babysitterInstanceProfile"
+                },
+                "ImageId": {
+                    "Fn::FindInMap": [
+                        "RegionMap",
+                        {
+                            "Ref": "AWS::Region"
+                        },
+                        "EBSAMI"
+                    ]
+                },
+                "InstanceType": {
+                    "Ref": "BabysitterInstanceType"
+                },
+                "KeyName": {
+                    "Ref": "KeyName"
+                },
+                "SecurityGroups": [
+                    {
+                        "Ref": "SSHAccessibleSecurityGroup"
+                    }
+                ],
+                "UserData": {
+                    "Fn::Base64": "#! /usr/bin/env bash\n# TODO: enable set -e and bugproof\n\nexport ENV='infra'\nexport CLOUDNAME='test-cloud'\nexport DEPLOY='babysitter'\n\nAVAILABILITY_ZONE=$(curl http://169.254.169.254/latest/meta-data/placement/availability-zone)\nINSTANCE_ID=$(curl http://169.254.169.254/latest/meta-data/instance-id)\nexport REGION=\"${AVAILABILITY_ZONE:0:${#AVAILABILITY_ZONE} - 1}\"\n\nexport CHEF_ENVIRONMENT='${ENV}.${CLOUDNAME}'\nexport CHEF_VERSION='12.0'\n\nrm /cloud-init-* > /dev/null 2&>1\n\napt-get install -y awscli\ncurl -LO https://www.chef.io/chef/install.sh && sudo bash ./install.sh -v $CHEF_VERSION && rm install.sh\n\nmkdir -p /etc/chef\naws s3 --region $REGION cp s3://cloudstrap.$CLOUDNAME.$REGION.$ENV.leafme/validator.pem /etc/chef/validation.pem\n\n\nCHEF_SERVER_URL=\"https://api.opscode.com/organizations/leaf-$ENV\"\n\nNODE_NAME=\"$DEPLOY.$CLOUDNAME.$ENV.${INSTANCE_ID:2}\"\n\naws --region $REGION ec2 create-tags --resources $INSTANCE_ID --tags Key=Name,Value=$NODE_NAME\n\nrm /etc/chef/client.rb > /dev/null 2&>1\necho \"chef_server_url           '$CHEF_SERVER_URL'\"                             >> /etc/chef/client.rb\necho \"validation_client_name    'leaf-$ENV-validator'\"                          >> /etc/chef/client.rb\necho \"validation_key            '/etc/chef/validation.pem'\"                     >> /etc/chef/client.rb\necho \"log_level                 :info\"                                          >> /etc/chef/client.rb\necho \"log_location              '/var/log/chef.log'\"                            >> /etc/chef/client.rb\necho \"environment               '${CLOUDNAME}_${ENV}'\"                              >> /etc/chef/client.rb\necho \"node_name                 '$NODE_NAME'\"                                   >> /etc/chef/client.rb\n\nchef-client                                   # register the node\nchef-client -r chef-client::delete_validation # clears validation pem\nchef-client -r leaf-deploy-$DEPLOY            # shootans the laser\n\ncrontab -l | { cat; echo \"*/5 * * * * chef-client -r leaf-deploy-$DEPLOY\"; } | crontab -\n\nCHEF_RETVAL=$?\nif [[ $CHEF_RETVAL -eq 0 ]]\n  then\n  touch /cloud-init-successful\n  exit 0\nelse\n  echo $CHEF_RETVAL > /cloud-init-failed\n  exit 1\nfi\n"
+                }
+            },
+            "Type": "AWS::AutoScaling::LaunchConfiguration"
+        },
+        "BabysitterQueueDepthAlarm": {
+            "DependsOn": "BabysitterAlarmTopic",
+            "Properties": {
+                "AlarmActions": [
+                    {
+                        "Ref": "BabysitterAlarmTopic"
+                    }
+                ],
+                "AlarmDescription": "Alarm if the queue depth grows beyond 200 messages",
+                "ComparisonOperator": "GreaterThanThreshold",
+                "Dimensions": [
+                    {
+                        "Name": "QueueName",
+                        "Value": {
+                            "Fn::GetAtt": [
+                                "chefderegistrationtestcloudinfra",
+                                "QueueName"
+                            ]
+                        }
+                    }
+                ],
+                "EvaluationPeriods": "1",
+                "InsufficientDataActions": [
+                    {
+                        "Ref": "BabysitterAlarmTopic"
+                    }
+                ],
+                "MetricName": "ApproximateNumberOfMessagesVisible",
+                "Namespace": "AWS/SQS",
+                "Period": "300",
+                "Statistic": "Sum",
+                "Threshold": "200"
+            },
+            "Type": "AWS::CloudWatch::Alarm"
+        },
+        "CloudstrapBucket": {
+            "Condition": "CloudstrapBucketCondition",
+            "DeletionPolicy": "Retain",
+            "Properties": {
+                "BucketName": {
+                    "Fn::Join": [
+                        ".",
+                        [
+                            "cloudstrap",
+                            "test-cloud",
+                            {
+                                "Ref": "AWS::Region"
+                            },
+                            "infra",
+                            "leafme"
+                        ]
+                    ]
+                }
+            },
+            "Type": "AWS::S3::Bucket"
+        },
+        "GatewayAttachment": {
+            "DependsOn": "InternetGateway",
+            "Properties": {
+                "InternetGatewayId": {
+                    "Ref": "InternetGateway"
+                },
+                "VpcId": {
+                    "Ref": "VPC"
+                }
+            },
+            "Type": "AWS::EC2::VPCGatewayAttachment"
+        },
+        "InternetGateway": {
+            "DependsOn": "VPC",
+            "Properties": {
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "InternetGateway"
+                    }
+                ]
+            },
+            "Type": "AWS::EC2::InternetGateway"
+        },
+        "NATSecurityGroup": {
+            "DependsOn": "VPC",
+            "Properties": {
+                "GroupDescription": "Security Group for NAT instances",
+                "SecurityGroupEgress": [
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 80,
+                        "IpProtocol": "tcp",
+                        "ToPort": 80
+                    },
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 443,
+                        "IpProtocol": "tcp",
+                        "ToPort": 443
+                    }
+                ],
+                "SecurityGroupIngress": [
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 22,
+                        "IpProtocol": "tcp",
+                        "ToPort": 22
+                    },
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 80,
+                        "IpProtocol": "tcp",
+                        "ToPort": 80
+                    },
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 443,
+                        "IpProtocol": "tcp",
+                        "ToPort": 443
+                    }
+                ],
+                "VpcId": {
+                    "Ref": "VPC"
+                }
+            },
+            "Type": "AWS::EC2::SecurityGroup"
+        },
+        "PrivateRouteC": {
+            "DependsOn": "testcloudinfraPrivateRouteTablec",
+            "Properties": {
+                "DestinationCidrBlock": "0.0.0.0/0",
+                "InstanceId": {
+                    "Ref": "testcloudinfraNatc"
+                },
+                "RouteTableId": {
+                    "Ref": "testcloudinfraPrivateRouteTablec"
+                }
+            },
+            "Type": "AWS::EC2::Route"
+        },
+        "PrivateRouteD": {
+            "DependsOn": "testcloudinfraPrivateRouteTabled",
+            "Properties": {
+                "DestinationCidrBlock": "0.0.0.0/0",
+                "InstanceId": {
+                    "Ref": "testcloudinfraNatd"
+                },
+                "RouteTableId": {
+                    "Ref": "testcloudinfraPrivateRouteTabled"
+                }
+            },
+            "Type": "AWS::EC2::Route"
+        },
+        "PrivateRouteE": {
+            "DependsOn": "testcloudinfraPrivateRouteTablee",
+            "Properties": {
+                "DestinationCidrBlock": "0.0.0.0/0",
+                "InstanceId": {
+                    "Ref": "testcloudinfraNate"
+                },
+                "RouteTableId": {
+                    "Ref": "testcloudinfraPrivateRouteTablee"
+                }
+            },
+            "Type": "AWS::EC2::Route"
+        },
+        "PublicRoute": {
+            "DependsOn": "GatewayAttachment",
+            "Properties": {
+                "DestinationCidrBlock": "0.0.0.0/0",
+                "GatewayId": {
+                    "Ref": "InternetGateway"
+                },
+                "RouteTableId": {
+                    "Ref": "testcloudinfraPublicRouteTable"
+                }
+            },
+            "Type": "AWS::EC2::Route"
+        },
+        "SSHAccessibleSecurityGroup": {
+            "DependsOn": "VPC",
+            "Properties": {
+                "GroupDescription": "Allow SSH access from public",
+                "SecurityGroupIngress": [
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 22,
+                        "IpProtocol": "tcp",
+                        "ToPort": 22
+                    }
+                ],
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "ssh-accessible.test-cloud.infra"
+                    }
+                ],
+                "VpcId": {
+                    "Ref": "VPC"
+                }
+            },
+            "Type": "AWS::EC2::SecurityGroup"
+        },
+        "VPC": {
+            "Properties": {
+                "CidrBlock": "10.151.0.0/16",
+                "EnableDnsSupport": "true",
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "-",
+                                [
+                                    "testcloudinfra",
+                                    {
+                                        "Ref": "AWS::Region"
+                                    }
+                                ]
+                            ]
+                        }
+                    }
+                ]
+            },
+            "Type": "AWS::EC2::VPC"
+        },
+        "ZookeeperASG": {
+            "Properties": {
+                "AvailabilityZones": [
+                    {
+                        "Fn::Join": [
+                            "",
+                            [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "c"
+                            ]
+                        ]
+                    },
+                    {
+                        "Fn::Join": [
+                            "",
+                            [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "d"
+                            ]
+                        ]
+                    },
+                    {
+                        "Fn::Join": [
+                            "",
+                            [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "e"
+                            ]
+                        ]
+                    }
+                ],
+                "DesiredCapacity": "3",
+                "LaunchConfigurationName": {
+                    "Ref": "ZookeeperLaunchConfiguration"
+                },
+                "MaxSize": "3",
+                "MinSize": "3",
+                "VPCZoneIdentifier": [
+                    {
+                        "Ref": "testcloudinfraprivateMasterSubnetC"
+                    },
+                    {
+                        "Ref": "testcloudinfraprivateMasterSubnetD"
+                    },
+                    {
+                        "Ref": "testcloudinfraprivateMasterSubnetE"
+                    }
+                ]
+            },
+            "Type": "AWS::AutoScaling::AutoScalingGroup"
+        },
+        "ZookeeperBucket": {
+            "Condition": "ZookeeperBucketCondition",
+            "DeletionPolicy": "Retain",
+            "Properties": {
+                "BucketName": {
+                    "Fn::Join": [
+                        ".",
+                        [
+                            "zookeeper",
+                            "test-cloud",
+                            {
+                                "Ref": "AWS::Region"
+                            },
+                            "infra",
+                            "leafme"
+                        ]
+                    ]
+                }
+            },
+            "Type": "AWS::S3::Bucket"
+        },
+        "ZookeeperIamRole": {
+            "DependsOn": "VPC",
+            "Properties": {
+                "AssumeRolePolicyDocument": {
+                    "Statement": [
+                        {
+                            "Action": [
+                                "sts:AssumeRole"
+                            ],
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": [
+                                    "ec2.amazonaws.com"
+                                ]
+                            }
+                        }
+                    ],
+                    "Version": "2012-10-17"
+                },
+                "Path": "/",
+                "Policies": [
+                    {
+                        "PolicyDocument": {
+                            "Statement": [
+                                {
+                                    "Action": [
+                                        "s3:GetObject"
+                                    ],
+                                    "Effect": "Allow",
+                                    "Resource": [
+                                        "arn:aws:s3:::cloudstrap.test-cloud.us-east-1.infra.leafme/validator.pem"
+                                    ],
+                                    "Sid": ""
+                                },
+                                {
+                                    "Action": [
+                                        "ec2:CreateTags"
+                                    ],
+                                    "Effect": "Allow",
+                                    "Resource": [
+                                        "*"
+                                    ],
+                                    "Sid": ""
+                                }
+                            ],
+                            "Version": "2012-10-17"
+                        },
+                        "PolicyName": "ZookeeperDefaultPolicy"
+                    },
+                    {
+                        "PolicyDocument": {
+                            "Statement": [
+                                {
+                                    "Action": [
+                                        "s3:AbortMultipartUpload",
+                                        "s3:DeleteObject",
+                                        "s3:GetBucketAcl",
+                                        "s3:GetBucketPolicy",
+                                        "s3:GetObject",
+                                        "s3:GetObjectAcl",
+                                        "s3:ListBucket",
+                                        "s3:ListBucketMultipartUploads",
+                                        "s3:ListMultipartUploadParts",
+                                        "s3:PutObject",
+                                        "s3:PutObjectAcl"
+                                    ],
+                                    "Effect": "Allow",
+                                    "Resource": [
+                                        "arn:aws:s3:::cloudstrap.test-cloud.us-east-1.infra.leafme/*",
+                                        "arn:aws:s3:::cloudstrap.test-cloud.us-east-1.infra.leafme"
+                                    ],
+                                    "Sid": ""
+                                }
+                            ]
+                        },
+                        "PolicyName": "ZookeeperPolicy"
+                    }
+                ]
+            },
+            "Type": "AWS::IAM::Role"
+        },
+        "ZookeeperLaunchConfiguration": {
+            "DependsOn": [
+                "zookeeperInstanceProfile",
+                "ZookeeperSecurityGroup",
+                "ZookeeperSecurityGroup",
+                "SSHAccessibleSecurityGroup"
+            ],
+            "Properties": {
+                "IamInstanceProfile": {
+                    "Ref": "zookeeperInstanceProfile"
+                },
+                "ImageId": {
+                    "Fn::FindInMap": [
+                        "RegionMap",
+                        {
+                            "Ref": "AWS::Region"
+                        },
+                        "INSTANCESTOREAMI"
+                    ]
+                },
+                "InstanceType": {
+                    "Ref": "ZookeeperInstanceType"
+                },
+                "KeyName": {
+                    "Ref": "KeyName"
+                },
+                "SecurityGroups": [
+                    {
+                        "Ref": "ZookeeperSecurityGroup"
+                    },
+                    {
+                        "Ref": "SSHAccessibleSecurityGroup"
+                    }
+                ],
+                "UserData": {
+                    "Fn::Base64": "#! /usr/bin/env bash\n# TODO: enable set -e and bugproof\n\nexport ENV='infra'\nexport CLOUDNAME='test-cloud'\nexport DEPLOY='zookeeper'\n\nAVAILABILITY_ZONE=$(curl http://169.254.169.254/latest/meta-data/placement/availability-zone)\nINSTANCE_ID=$(curl http://169.254.169.254/latest/meta-data/instance-id)\nexport REGION=\"${AVAILABILITY_ZONE:0:${#AVAILABILITY_ZONE} - 1}\"\n\nexport CHEF_ENVIRONMENT='${ENV}.${CLOUDNAME}'\nexport CHEF_VERSION='12.0'\n\nrm /cloud-init-* > /dev/null 2&>1\n\napt-get install -y awscli\ncurl -LO https://www.chef.io/chef/install.sh && sudo bash ./install.sh -v $CHEF_VERSION && rm install.sh\n\nmkdir -p /etc/chef\naws s3 --region $REGION cp s3://cloudstrap.$CLOUDNAME.$REGION.$ENV.leafme/validator.pem /etc/chef/validation.pem\n\n\nCHEF_SERVER_URL=\"https://api.opscode.com/organizations/leaf-$ENV\"\n\nNODE_NAME=\"$DEPLOY.$CLOUDNAME.$ENV.${INSTANCE_ID:2}\"\n\naws --region $REGION ec2 create-tags --resources $INSTANCE_ID --tags Key=Name,Value=$NODE_NAME\n\nrm /etc/chef/client.rb > /dev/null 2&>1\necho \"chef_server_url           '$CHEF_SERVER_URL'\"                             >> /etc/chef/client.rb\necho \"validation_client_name    'leaf-$ENV-validator'\"                          >> /etc/chef/client.rb\necho \"validation_key            '/etc/chef/validation.pem'\"                     >> /etc/chef/client.rb\necho \"log_level                 :info\"                                          >> /etc/chef/client.rb\necho \"log_location              '/var/log/chef.log'\"                            >> /etc/chef/client.rb\necho \"environment               '${CLOUDNAME}_${ENV}'\"                              >> /etc/chef/client.rb\necho \"node_name                 '$NODE_NAME'\"                                   >> /etc/chef/client.rb\n\nchef-client                                   # register the node\nchef-client -r chef-client::delete_validation # clears validation pem\nchef-client -r leaf-deploy-$DEPLOY            # shootans the laser\n\ncrontab -l | { cat; echo \"*/5 * * * * chef-client -r leaf-deploy-$DEPLOY\"; } | crontab -\n\nCHEF_RETVAL=$?\nif [[ $CHEF_RETVAL -eq 0 ]]\n  then\n  touch /cloud-init-successful\n  exit 0\nelse\n  echo $CHEF_RETVAL > /cloud-init-failed\n  exit 1\nfi\n"
+                }
+            },
+            "Type": "AWS::AutoScaling::LaunchConfiguration"
+        },
+        "ZookeeperSecurityGroup": {
+            "DependsOn": "VPC",
+            "Properties": {
+                "GroupDescription": "Security Group for ZooKeeper instances",
+                "SecurityGroupIngress": [
+                    {
+                        "CidrIp": "10.151.0.0/16",
+                        "FromPort": 2181,
+                        "IpProtocol": "tcp",
+                        "ToPort": 2181
+                    }
+                ],
+                "VpcId": {
+                    "Ref": "VPC"
+                }
+            },
+            "Type": "AWS::EC2::SecurityGroup"
+        },
+        "ZookeeperSelfIngress2888": {
+            "DependsOn": "ZookeeperSecurityGroup",
+            "Properties": {
+                "FromPort": 2888,
+                "GroupId": {
+                    "Ref": "ZookeeperSecurityGroup"
+                },
+                "IpProtocol": "tcp",
+                "SourceSecurityGroupId": {
+                    "Ref": "ZookeeperSecurityGroup"
+                },
+                "ToPort": 2888
+            },
+            "Type": "AWS::EC2::SecurityGroupIngress"
+        },
+        "ZookeeperSelfIngress3888": {
+            "DependsOn": "ZookeeperSecurityGroup",
+            "Properties": {
+                "FromPort": 3888,
+                "GroupId": {
+                    "Ref": "ZookeeperSecurityGroup"
+                },
+                "IpProtocol": "tcp",
+                "SourceSecurityGroupId": {
+                    "Ref": "ZookeeperSecurityGroup"
+                },
+                "ToPort": 3888
+            },
+            "Type": "AWS::EC2::SecurityGroupIngress"
+        },
+        "babysitterInstanceProfile": {
+            "DependsOn": "BabysitterIamRole",
+            "Properties": {
+                "Path": "/",
+                "Roles": [
+                    {
+                        "Ref": "BabysitterIamRole"
+                    }
+                ]
+            },
+            "Type": "AWS::IAM::InstanceProfile"
+        },
+        "chefderegistrationtestcloudinfra": {
+            "Properties": {
+                "MaximumMessageSize": 16384,
+                "MessageRetentionPeriod": 1209600,
+                "QueueName": "chef-deregistration_test-cloud_infra",
+                "VisibilityTimeout": 60
+            },
+            "Type": "AWS::SQS::Queue"
+        },
+        "testcloudinfraNatc": {
+            "DependsOn": "VPC",
+            "Properties": {
+                "ImageId": {
+                    "Fn::FindInMap": [
+                        "RegionMap",
+                        {
+                            "Ref": "AWS::Region"
+                        },
+                        "NATAMI"
+                    ]
+                },
+                "InstanceType": {
+                    "Ref": "NatInstanceType"
+                },
+                "KeyName": {
+                    "Ref": "KeyName"
+                },
+                "NetworkInterfaces": [
+                    {
+                        "AssociatePublicIpAddress": "true",
+                        "DeleteOnTermination": "true",
+                        "Description": "Network interface for testcloudinfraNatc",
+                        "DeviceIndex": 0,
+                        "GroupSet": [
+                            {
+                                "Ref": "NATSecurityGroup"
+                            }
+                        ],
+                        "SubnetId": {
+                            "Ref": "testcloudinfraPublicSubnetc"
+                        }
+                    }
+                ],
+                "SourceDestCheck": "false",
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "-",
+                                [
+                                    "testcloudinfra",
+                                    "nat",
+                                    {
+                                        "Fn::Join": [
+                                            "",
+                                            [
+                                                {
+                                                    "Ref": "AWS::Region"
+                                                },
+                                                {
+                                                    "Fn::Select": [
+                                                        0,
+                                                        {
+                                                            "Ref": "AvailabilityZones"
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        ]
+                                    }
+                                ]
+                            ]
+                        }
+                    }
+                ]
+            },
+            "Type": "AWS::EC2::Instance"
+        },
+        "testcloudinfraNatd": {
+            "DependsOn": "VPC",
+            "Properties": {
+                "ImageId": {
+                    "Fn::FindInMap": [
+                        "RegionMap",
+                        {
+                            "Ref": "AWS::Region"
+                        },
+                        "NATAMI"
+                    ]
+                },
+                "InstanceType": {
+                    "Ref": "NatInstanceType"
+                },
+                "KeyName": {
+                    "Ref": "KeyName"
+                },
+                "NetworkInterfaces": [
+                    {
+                        "AssociatePublicIpAddress": "true",
+                        "DeleteOnTermination": "true",
+                        "Description": "Network interface for testcloudinfraNatd",
+                        "DeviceIndex": 0,
+                        "GroupSet": [
+                            {
+                                "Ref": "NATSecurityGroup"
+                            }
+                        ],
+                        "SubnetId": {
+                            "Ref": "testcloudinfraPublicSubnetd"
+                        }
+                    }
+                ],
+                "SourceDestCheck": "false",
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "-",
+                                [
+                                    "testcloudinfra",
+                                    "nat",
+                                    {
+                                        "Fn::Join": [
+                                            "",
+                                            [
+                                                {
+                                                    "Ref": "AWS::Region"
+                                                },
+                                                {
+                                                    "Fn::Select": [
+                                                        1,
+                                                        {
+                                                            "Ref": "AvailabilityZones"
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        ]
+                                    }
+                                ]
+                            ]
+                        }
+                    }
+                ]
+            },
+            "Type": "AWS::EC2::Instance"
+        },
+        "testcloudinfraNate": {
+            "DependsOn": "VPC",
+            "Properties": {
+                "ImageId": {
+                    "Fn::FindInMap": [
+                        "RegionMap",
+                        {
+                            "Ref": "AWS::Region"
+                        },
+                        "NATAMI"
+                    ]
+                },
+                "InstanceType": {
+                    "Ref": "NatInstanceType"
+                },
+                "KeyName": {
+                    "Ref": "KeyName"
+                },
+                "NetworkInterfaces": [
+                    {
+                        "AssociatePublicIpAddress": "true",
+                        "DeleteOnTermination": "true",
+                        "Description": "Network interface for testcloudinfraNate",
+                        "DeviceIndex": 0,
+                        "GroupSet": [
+                            {
+                                "Ref": "NATSecurityGroup"
+                            }
+                        ],
+                        "SubnetId": {
+                            "Ref": "testcloudinfraPublicSubnete"
+                        }
+                    }
+                ],
+                "SourceDestCheck": "false",
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "-",
+                                [
+                                    "testcloudinfra",
+                                    "nat",
+                                    {
+                                        "Fn::Join": [
+                                            "",
+                                            [
+                                                {
+                                                    "Ref": "AWS::Region"
+                                                },
+                                                {
+                                                    "Fn::Select": [
+                                                        2,
+                                                        {
+                                                            "Ref": "AvailabilityZones"
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        ]
+                                    }
+                                ]
+                            ]
+                        }
+                    }
+                ]
+            },
+            "Type": "AWS::EC2::Instance"
+        },
+        "testcloudinfraPrivateRouteTablec": {
+            "DependsOn": "testcloudinfraNatc",
+            "Properties": {
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "-",
+                                [
+                                    "testcloudinfra",
+                                    "private-route-table",
+                                    {
+                                        "Fn::Join": [
+                                            "",
+                                            [
+                                                {
+                                                    "Ref": "AWS::Region"
+                                                },
+                                                {
+                                                    "Fn::Select": [
+                                                        0,
+                                                        {
+                                                            "Ref": "AvailabilityZones"
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        ]
+                                    }
+                                ]
+                            ]
+                        }
+                    }
+                ],
+                "VpcId": {
+                    "Ref": "VPC"
+                }
+            },
+            "Type": "AWS::EC2::RouteTable"
+        },
+        "testcloudinfraPrivateRouteTabled": {
+            "DependsOn": "testcloudinfraNatd",
+            "Properties": {
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "-",
+                                [
+                                    "testcloudinfra",
+                                    "private-route-table",
+                                    {
+                                        "Fn::Join": [
+                                            "",
+                                            [
+                                                {
+                                                    "Ref": "AWS::Region"
+                                                },
+                                                {
+                                                    "Fn::Select": [
+                                                        1,
+                                                        {
+                                                            "Ref": "AvailabilityZones"
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        ]
+                                    }
+                                ]
+                            ]
+                        }
+                    }
+                ],
+                "VpcId": {
+                    "Ref": "VPC"
+                }
+            },
+            "Type": "AWS::EC2::RouteTable"
+        },
+        "testcloudinfraPrivateRouteTablee": {
+            "DependsOn": "testcloudinfraNate",
+            "Properties": {
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "-",
+                                [
+                                    "testcloudinfra",
+                                    "private-route-table",
+                                    {
+                                        "Fn::Join": [
+                                            "",
+                                            [
+                                                {
+                                                    "Ref": "AWS::Region"
+                                                },
+                                                {
+                                                    "Fn::Select": [
+                                                        2,
+                                                        {
+                                                            "Ref": "AvailabilityZones"
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        ]
+                                    }
+                                ]
+                            ]
+                        }
+                    }
+                ],
+                "VpcId": {
+                    "Ref": "VPC"
+                }
+            },
+            "Type": "AWS::EC2::RouteTable"
+        },
+        "testcloudinfraPublicRouteTable": {
+            "DependsOn": "VPC",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "VPC"
+                }
+            },
+            "Type": "AWS::EC2::RouteTable"
+        },
+        "testcloudinfraPublicSubnetc": {
+            "DependsOn": "VPC",
+            "Properties": {
+                "AvailabilityZone": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            {
+                                "Ref": "AWS::Region"
+                            },
+                            {
+                                "Fn::Select": [
+                                    0,
+                                    {
+                                        "Ref": "AvailabilityZones"
+                                    }
+                                ]
+                            }
+                        ]
+                    ]
+                },
+                "CidrBlock": "10.151.80.0/24",
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "-",
+                                [
+                                    "testcloudinfra",
+                                    "public-subnet",
+                                    {
+                                        "Fn::Join": [
+                                            "",
+                                            [
+                                                {
+                                                    "Ref": "AWS::Region"
+                                                },
+                                                {
+                                                    "Fn::Select": [
+                                                        0,
+                                                        {
+                                                            "Ref": "AvailabilityZones"
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        ]
+                                    }
+                                ]
+                            ]
+                        }
+                    }
+                ],
+                "VpcId": {
+                    "Ref": "VPC"
+                }
+            },
+            "Type": "AWS::EC2::Subnet"
+        },
+        "testcloudinfraPublicSubnetcPublicRouteTableAssociation": {
+            "DependsOn": "testcloudinfraPublicSubnetc",
+            "Properties": {
+                "RouteTableId": {
+                    "Ref": "testcloudinfraPublicRouteTable"
+                },
+                "SubnetId": {
+                    "Ref": "testcloudinfraPublicSubnetc"
+                }
+            },
+            "Type": "AWS::EC2::SubnetRouteTableAssociation"
+        },
+        "testcloudinfraPublicSubnetd": {
+            "DependsOn": "VPC",
+            "Properties": {
+                "AvailabilityZone": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            {
+                                "Ref": "AWS::Region"
+                            },
+                            {
+                                "Fn::Select": [
+                                    1,
+                                    {
+                                        "Ref": "AvailabilityZones"
+                                    }
+                                ]
+                            }
+                        ]
+                    ]
+                },
+                "CidrBlock": "10.151.81.0/24",
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "-",
+                                [
+                                    "testcloudinfra",
+                                    "public-subnet",
+                                    {
+                                        "Fn::Join": [
+                                            "",
+                                            [
+                                                {
+                                                    "Ref": "AWS::Region"
+                                                },
+                                                {
+                                                    "Fn::Select": [
+                                                        1,
+                                                        {
+                                                            "Ref": "AvailabilityZones"
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        ]
+                                    }
+                                ]
+                            ]
+                        }
+                    }
+                ],
+                "VpcId": {
+                    "Ref": "VPC"
+                }
+            },
+            "Type": "AWS::EC2::Subnet"
+        },
+        "testcloudinfraPublicSubnetdPublicRouteTableAssociation": {
+            "DependsOn": "testcloudinfraPublicSubnetd",
+            "Properties": {
+                "RouteTableId": {
+                    "Ref": "testcloudinfraPublicRouteTable"
+                },
+                "SubnetId": {
+                    "Ref": "testcloudinfraPublicSubnetd"
+                }
+            },
+            "Type": "AWS::EC2::SubnetRouteTableAssociation"
+        },
+        "testcloudinfraPublicSubnete": {
+            "DependsOn": "VPC",
+            "Properties": {
+                "AvailabilityZone": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            {
+                                "Ref": "AWS::Region"
+                            },
+                            {
+                                "Fn::Select": [
+                                    2,
+                                    {
+                                        "Ref": "AvailabilityZones"
+                                    }
+                                ]
+                            }
+                        ]
+                    ]
+                },
+                "CidrBlock": "10.151.82.0/24",
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "-",
+                                [
+                                    "testcloudinfra",
+                                    "public-subnet",
+                                    {
+                                        "Fn::Join": [
+                                            "",
+                                            [
+                                                {
+                                                    "Ref": "AWS::Region"
+                                                },
+                                                {
+                                                    "Fn::Select": [
+                                                        2,
+                                                        {
+                                                            "Ref": "AvailabilityZones"
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        ]
+                                    }
+                                ]
+                            ]
+                        }
+                    }
+                ],
+                "VpcId": {
+                    "Ref": "VPC"
+                }
+            },
+            "Type": "AWS::EC2::Subnet"
+        },
+        "testcloudinfraPublicSubnetePublicRouteTableAssociation": {
+            "DependsOn": "testcloudinfraPublicSubnete",
+            "Properties": {
+                "RouteTableId": {
+                    "Ref": "testcloudinfraPublicRouteTable"
+                },
+                "SubnetId": {
+                    "Ref": "testcloudinfraPublicSubnete"
+                }
+            },
+            "Type": "AWS::EC2::SubnetRouteTableAssociation"
+        },
+        "testcloudinfraprivateMasterSubnetC": {
+            "DependsOn": "VPC",
+            "Properties": {
+                "AvailabilityZone": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            {
+                                "Ref": "AWS::Region"
+                            },
+                            {
+                                "Fn::Select": [
+                                    0,
+                                    {
+                                        "Ref": "AvailabilityZones"
+                                    }
+                                ]
+                            }
+                        ]
+                    ]
+                },
+                "CidrBlock": "10.151.90.0/24",
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "-",
+                                [
+                                    "testcloudinfra",
+                                    "private-master-subnet",
+                                    {
+                                        "Fn::Join": [
+                                            "",
+                                            [
+                                                {
+                                                    "Ref": "AWS::Region"
+                                                },
+                                                {
+                                                    "Fn::Select": [
+                                                        0,
+                                                        {
+                                                            "Ref": "AvailabilityZones"
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        ]
+                                    }
+                                ]
+                            ]
+                        }
+                    }
+                ],
+                "VpcId": {
+                    "Ref": "VPC"
+                }
+            },
+            "Type": "AWS::EC2::Subnet"
+        },
+        "testcloudinfraprivateMasterSubnetCprivateRouteTableAssociation": {
+            "DependsOn": "testcloudinfraprivateMasterSubnetC",
+            "Properties": {
+                "RouteTableId": {
+                    "Ref": "testcloudinfraPrivateRouteTablec"
+                },
+                "SubnetId": {
+                    "Ref": "testcloudinfraprivateMasterSubnetC"
+                }
+            },
+            "Type": "AWS::EC2::SubnetRouteTableAssociation"
+        },
+        "testcloudinfraprivateMasterSubnetD": {
+            "DependsOn": "VPC",
+            "Properties": {
+                "AvailabilityZone": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            {
+                                "Ref": "AWS::Region"
+                            },
+                            {
+                                "Fn::Select": [
+                                    1,
+                                    {
+                                        "Ref": "AvailabilityZones"
+                                    }
+                                ]
+                            }
+                        ]
+                    ]
+                },
+                "CidrBlock": "10.151.91.0/24",
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "-",
+                                [
+                                    "testcloudinfra",
+                                    "private-master-subnet",
+                                    {
+                                        "Fn::Join": [
+                                            "",
+                                            [
+                                                {
+                                                    "Ref": "AWS::Region"
+                                                },
+                                                {
+                                                    "Fn::Select": [
+                                                        1,
+                                                        {
+                                                            "Ref": "AvailabilityZones"
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        ]
+                                    }
+                                ]
+                            ]
+                        }
+                    }
+                ],
+                "VpcId": {
+                    "Ref": "VPC"
+                }
+            },
+            "Type": "AWS::EC2::Subnet"
+        },
+        "testcloudinfraprivateMasterSubnetDprivateRouteTableAssociation": {
+            "DependsOn": "testcloudinfraprivateMasterSubnetD",
+            "Properties": {
+                "RouteTableId": {
+                    "Ref": "testcloudinfraPrivateRouteTabled"
+                },
+                "SubnetId": {
+                    "Ref": "testcloudinfraprivateMasterSubnetD"
+                }
+            },
+            "Type": "AWS::EC2::SubnetRouteTableAssociation"
+        },
+        "testcloudinfraprivateMasterSubnetE": {
+            "DependsOn": "VPC",
+            "Properties": {
+                "AvailabilityZone": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            {
+                                "Ref": "AWS::Region"
+                            },
+                            {
+                                "Fn::Select": [
+                                    2,
+                                    {
+                                        "Ref": "AvailabilityZones"
+                                    }
+                                ]
+                            }
+                        ]
+                    ]
+                },
+                "CidrBlock": "10.151.92.0/24",
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "-",
+                                [
+                                    "testcloudinfra",
+                                    "private-master-subnet",
+                                    {
+                                        "Fn::Join": [
+                                            "",
+                                            [
+                                                {
+                                                    "Ref": "AWS::Region"
+                                                },
+                                                {
+                                                    "Fn::Select": [
+                                                        2,
+                                                        {
+                                                            "Ref": "AvailabilityZones"
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        ]
+                                    }
+                                ]
+                            ]
+                        }
+                    }
+                ],
+                "VpcId": {
+                    "Ref": "VPC"
+                }
+            },
+            "Type": "AWS::EC2::Subnet"
+        },
+        "testcloudinfraprivateMasterSubnetEprivateRouteTableAssociation": {
+            "DependsOn": "testcloudinfraprivateMasterSubnetE",
+            "Properties": {
+                "RouteTableId": {
+                    "Ref": "testcloudinfraPrivateRouteTablee"
+                },
+                "SubnetId": {
+                    "Ref": "testcloudinfraprivateMasterSubnetE"
+                }
+            },
+            "Type": "AWS::EC2::SubnetRouteTableAssociation"
+        },
+        "testcloudinfraprivatePlatformSubnetC": {
+            "DependsOn": "VPC",
+            "Properties": {
+                "AvailabilityZone": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            {
+                                "Ref": "AWS::Region"
+                            },
+                            {
+                                "Fn::Select": [
+                                    0,
+                                    {
+                                        "Ref": "AvailabilityZones"
+                                    }
+                                ]
+                            }
+                        ]
+                    ]
+                },
+                "CidrBlock": "10.151.10.0/24",
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "-",
+                                [
+                                    "testcloudinfra",
+                                    "private-platform-subnet",
+                                    {
+                                        "Fn::Join": [
+                                            "",
+                                            [
+                                                {
+                                                    "Ref": "AWS::Region"
+                                                },
+                                                {
+                                                    "Fn::Select": [
+                                                        0,
+                                                        {
+                                                            "Ref": "AvailabilityZones"
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        ]
+                                    }
+                                ]
+                            ]
+                        }
+                    }
+                ],
+                "VpcId": {
+                    "Ref": "VPC"
+                }
+            },
+            "Type": "AWS::EC2::Subnet"
+        },
+        "testcloudinfraprivatePlatformSubnetCprivateRouteTableAssociation": {
+            "DependsOn": "testcloudinfraprivatePlatformSubnetC",
+            "Properties": {
+                "RouteTableId": {
+                    "Ref": "testcloudinfraPrivateRouteTablec"
+                },
+                "SubnetId": {
+                    "Ref": "testcloudinfraprivatePlatformSubnetC"
+                }
+            },
+            "Type": "AWS::EC2::SubnetRouteTableAssociation"
+        },
+        "testcloudinfraprivatePlatformSubnetD": {
+            "DependsOn": "VPC",
+            "Properties": {
+                "AvailabilityZone": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            {
+                                "Ref": "AWS::Region"
+                            },
+                            {
+                                "Fn::Select": [
+                                    1,
+                                    {
+                                        "Ref": "AvailabilityZones"
+                                    }
+                                ]
+                            }
+                        ]
+                    ]
+                },
+                "CidrBlock": "10.151.11.0/24",
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "-",
+                                [
+                                    "testcloudinfra",
+                                    "private-platform-subnet",
+                                    {
+                                        "Fn::Join": [
+                                            "",
+                                            [
+                                                {
+                                                    "Ref": "AWS::Region"
+                                                },
+                                                {
+                                                    "Fn::Select": [
+                                                        1,
+                                                        {
+                                                            "Ref": "AvailabilityZones"
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        ]
+                                    }
+                                ]
+                            ]
+                        }
+                    }
+                ],
+                "VpcId": {
+                    "Ref": "VPC"
+                }
+            },
+            "Type": "AWS::EC2::Subnet"
+        },
+        "testcloudinfraprivatePlatformSubnetDprivateRouteTableAssociation": {
+            "DependsOn": "testcloudinfraprivatePlatformSubnetD",
+            "Properties": {
+                "RouteTableId": {
+                    "Ref": "testcloudinfraPrivateRouteTabled"
+                },
+                "SubnetId": {
+                    "Ref": "testcloudinfraprivatePlatformSubnetD"
+                }
+            },
+            "Type": "AWS::EC2::SubnetRouteTableAssociation"
+        },
+        "testcloudinfraprivatePlatformSubnetE": {
+            "DependsOn": "VPC",
+            "Properties": {
+                "AvailabilityZone": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            {
+                                "Ref": "AWS::Region"
+                            },
+                            {
+                                "Fn::Select": [
+                                    2,
+                                    {
+                                        "Ref": "AvailabilityZones"
+                                    }
+                                ]
+                            }
+                        ]
+                    ]
+                },
+                "CidrBlock": "10.151.12.0/24",
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "-",
+                                [
+                                    "testcloudinfra",
+                                    "private-platform-subnet",
+                                    {
+                                        "Fn::Join": [
+                                            "",
+                                            [
+                                                {
+                                                    "Ref": "AWS::Region"
+                                                },
+                                                {
+                                                    "Fn::Select": [
+                                                        2,
+                                                        {
+                                                            "Ref": "AvailabilityZones"
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        ]
+                                    }
+                                ]
+                            ]
+                        }
+                    }
+                ],
+                "VpcId": {
+                    "Ref": "VPC"
+                }
+            },
+            "Type": "AWS::EC2::Subnet"
+        },
+        "testcloudinfraprivatePlatformSubnetEprivateRouteTableAssociation": {
+            "DependsOn": "testcloudinfraprivatePlatformSubnetE",
+            "Properties": {
+                "RouteTableId": {
+                    "Ref": "testcloudinfraPrivateRouteTablee"
+                },
+                "SubnetId": {
+                    "Ref": "testcloudinfraprivatePlatformSubnetE"
+                }
+            },
+            "Type": "AWS::EC2::SubnetRouteTableAssociation"
+        },
+        "testcloudinfraprivateWorkerSubnetc": {
+            "DependsOn": "VPC",
+            "Properties": {
+                "AvailabilityZone": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            {
+                                "Ref": "AWS::Region"
+                            },
+                            {
+                                "Fn::Select": [
+                                    0,
+                                    {
+                                        "Ref": "AvailabilityZones"
+                                    }
+                                ]
+                            }
+                        ]
+                    ]
+                },
+                "CidrBlock": "10.151.100.0/22",
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "-",
+                                [
+                                    "testcloudinfra",
+                                    "private-worker-subnet",
+                                    {
+                                        "Fn::Join": [
+                                            "",
+                                            [
+                                                {
+                                                    "Ref": "AWS::Region"
+                                                },
+                                                {
+                                                    "Fn::Select": [
+                                                        0,
+                                                        {
+                                                            "Ref": "AvailabilityZones"
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        ]
+                                    }
+                                ]
+                            ]
+                        }
+                    }
+                ],
+                "VpcId": {
+                    "Ref": "VPC"
+                }
+            },
+            "Type": "AWS::EC2::Subnet"
+        },
+        "testcloudinfraprivateWorkerSubnetcprivateRouteTableAssociation": {
+            "DependsOn": "testcloudinfraprivateWorkerSubnetc",
+            "Properties": {
+                "RouteTableId": {
+                    "Ref": "testcloudinfraPrivateRouteTablec"
+                },
+                "SubnetId": {
+                    "Ref": "testcloudinfraprivateWorkerSubnetc"
+                }
+            },
+            "Type": "AWS::EC2::SubnetRouteTableAssociation"
+        },
+        "testcloudinfraprivateWorkerSubnetd": {
+            "DependsOn": "VPC",
+            "Properties": {
+                "AvailabilityZone": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            {
+                                "Ref": "AWS::Region"
+                            },
+                            {
+                                "Fn::Select": [
+                                    1,
+                                    {
+                                        "Ref": "AvailabilityZones"
+                                    }
+                                ]
+                            }
+                        ]
+                    ]
+                },
+                "CidrBlock": "10.151.104.0/22",
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "-",
+                                [
+                                    "testcloudinfra",
+                                    "private-worker-subnet",
+                                    {
+                                        "Fn::Join": [
+                                            "",
+                                            [
+                                                {
+                                                    "Ref": "AWS::Region"
+                                                },
+                                                {
+                                                    "Fn::Select": [
+                                                        1,
+                                                        {
+                                                            "Ref": "AvailabilityZones"
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        ]
+                                    }
+                                ]
+                            ]
+                        }
+                    }
+                ],
+                "VpcId": {
+                    "Ref": "VPC"
+                }
+            },
+            "Type": "AWS::EC2::Subnet"
+        },
+        "testcloudinfraprivateWorkerSubnetdprivateRouteTableAssociation": {
+            "DependsOn": "testcloudinfraprivateWorkerSubnetd",
+            "Properties": {
+                "RouteTableId": {
+                    "Ref": "testcloudinfraPrivateRouteTabled"
+                },
+                "SubnetId": {
+                    "Ref": "testcloudinfraprivateWorkerSubnetd"
+                }
+            },
+            "Type": "AWS::EC2::SubnetRouteTableAssociation"
+        },
+        "testcloudinfraprivateWorkerSubnete": {
+            "DependsOn": "VPC",
+            "Properties": {
+                "AvailabilityZone": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            {
+                                "Ref": "AWS::Region"
+                            },
+                            {
+                                "Fn::Select": [
+                                    2,
+                                    {
+                                        "Ref": "AvailabilityZones"
+                                    }
+                                ]
+                            }
+                        ]
+                    ]
+                },
+                "CidrBlock": "10.151.108.0/22",
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "-",
+                                [
+                                    "testcloudinfra",
+                                    "private-worker-subnet",
+                                    {
+                                        "Fn::Join": [
+                                            "",
+                                            [
+                                                {
+                                                    "Ref": "AWS::Region"
+                                                },
+                                                {
+                                                    "Fn::Select": [
+                                                        2,
+                                                        {
+                                                            "Ref": "AvailabilityZones"
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        ]
+                                    }
+                                ]
+                            ]
+                        }
+                    }
+                ],
+                "VpcId": {
+                    "Ref": "VPC"
+                }
+            },
+            "Type": "AWS::EC2::Subnet"
+        },
+        "testcloudinfraprivateWorkerSubneteprivateRouteTableAssociation": {
+            "DependsOn": "testcloudinfraprivateWorkerSubnete",
+            "Properties": {
+                "RouteTableId": {
+                    "Ref": "testcloudinfraPrivateRouteTablee"
+                },
+                "SubnetId": {
+                    "Ref": "testcloudinfraprivateWorkerSubnete"
+                }
+            },
+            "Type": "AWS::EC2::SubnetRouteTableAssociation"
+        },
+        "zookeeperInstanceProfile": {
+            "DependsOn": "ZookeeperIamRole",
+            "Properties": {
+                "Path": "/",
+                "Roles": [
+                    {
+                        "Ref": "ZookeeperIamRole"
+                    }
+                ]
+            },
+            "Type": "AWS::IAM::InstanceProfile"
+        }
+    }
+}

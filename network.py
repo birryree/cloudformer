@@ -568,9 +568,6 @@ def create_cfn_template(conf_file, outfile):
                  "./lib/templates/zookeeper_policy.json.erb"
     ]))
 
-    with open('zookeeper_policy.json', 'r') as zkp:
-        zookeeper_policy = json.load(zkp)
-
     zookeeper_role_name = '.'.join(['zookeeper', CLOUDNAME, CLOUDENV])
     zookeeper_iam_role = t.add_resource(
         Role(
