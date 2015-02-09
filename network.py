@@ -755,7 +755,8 @@ def create_cfn_template(conf_file, outfile):
             LaunchConfigurationName=Ref(vpn_launchcfg),
             MinSize="1",
             MaxSize="1",
-            VPCZoneIdentifier=[Ref(sn) for sn in vpn_subnets]
+            VPCZoneIdentifier=[Ref(sn) for sn in vpn_subnets],
+            DependsOn=["{0}VpnSubnet{1}".format(VPC_NAME, zone) for zone in AVAILABILITY_ZONES]
         )
     )
     # END VPN
