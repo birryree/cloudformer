@@ -10,6 +10,16 @@
       "Resource": [
         "arn:aws:s3:::cloudstrap.<%= cloud %>.<%= region %>.<%= env %>.leafme/vpn-server/*"
       ]
+    },
+    {
+      "Sid": "",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DescribeSubnets"
+      ],
+      "Resource": [
+        "*"
+      ]
     }
   ]
 }

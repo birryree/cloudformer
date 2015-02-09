@@ -672,7 +672,7 @@ def create_cfn_template(conf_file, outfile):
     # BEGIN VPN
     vpn_ingress_rules = [
         SecurityGroupRule(
-            IpProtocol='tcp', CidrIp='{0}.0.0/16'.format(CIDR_PREFIX), FromPort=p, ToPort=p
+            IpProtocol='tcp', CidrIp='0.0.0.0/0', FromPort=p, ToPort=p
         ) for p in [22, 1194]
     ]
 
