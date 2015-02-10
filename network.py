@@ -551,7 +551,7 @@ def create_cfn_template(conf_file, outfile):
     zookeeper_ingress_rules = [
         SecurityGroupRule(
             IpProtocol='tcp', CidrIp='{0}.0.0/16'.format(CIDR_PREFIX), FromPort=p, ToPort=p
-        ) for p in [2181, 80, 443]
+        ) for p in [2181, 8080]
     ]
 
     zookeeper_sg = t.add_resource(
