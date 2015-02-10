@@ -14,6 +14,7 @@ export CHEF_VERSION='12.0'
 
 rm /cloud-init-* > /dev/null 2&>1
 
+apt-get update
 apt-get install -y awscli
 curl -LO https://www.chef.io/chef/install.sh && sudo bash ./install.sh -v $CHEF_VERSION && rm install.sh
 
