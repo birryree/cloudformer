@@ -318,7 +318,8 @@ def create_cfn_template(conf_file, outfile):
 
         subnets = list()
 
-        subnet_identifier = 'private' if USE_PRIVATE_SUBNETS else 'public'
+        subnet_identifier = 'private'
+        #if USE_PRIVATE_SUBNETS else 'public'
 
         # Create worker subnets
         worker_subnet = Subnet(
@@ -507,6 +508,7 @@ def create_cfn_template(conf_file, outfile):
             ImageId=FindInMap('RegionMap', region, 'EBSAMI'),
             InstanceType=Ref(babysitter_instance_class),
             IamInstanceProfile=Ref(babysitter_instance_profile),
+            AssociatePublicIpAddress=not USE_PRIVATE_SUBNETS,
             BlockDeviceMappings=[
                 BlockDeviceMapping(
                     DeviceName="/dev/sda1",
@@ -639,6 +641,7 @@ def create_cfn_template(conf_file, outfile):
             ImageId=FindInMap('RegionMap', region, 'INSTANCESTOREAMI'),
             InstanceType=Ref(zookeeper_instance_class),
             IamInstanceProfile=Ref(zookeeper_instance_profile),
+            AssociatePublicIpAddress=not USE_PRIVATE_SUBNETS,
             KeyName=Ref(keyname_param),
             SecurityGroups=[Ref(zookeeper_sg), Ref(ssh_sg)],
             DependsOn=[zookeeper_instance_profile.title, zookeeper_sg.title, zookeeper_sg.title, ssh_sg.title],
@@ -749,10 +752,10 @@ def create_cfn_template(conf_file, outfile):
         AutoScalingGroup(
             "VPNASG",
             AvailabilityZones=asg_azs,
-            DesiredCapacity="1",
+            DesiredCapacity="0",
             LaunchConfigurationName=Ref(vpn_launchcfg),
-            MinSize="1",
-            MaxSize="1",
+            MinSize="0",
+            MaxSize="0",
             VPCZoneIdentifier=[Ref(sn) for sn in vpn_subnets],
             DependsOn=["{0}VpnSubnet{1}".format(VPC_NAME, zone) for zone in AVAILABILITY_ZONES]
         )
