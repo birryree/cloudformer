@@ -361,7 +361,7 @@ def create_cfn_template(conf_file, outfile):
         master_subnets.append(master_subnet)
 
         # Associate every subnet with the private routing table
-        routing_table = private_rt if USE_PRIVATE_SUBNETS else public_rt
+        routing_table = public_rt
         for psn in subnets:
             t.add_resource(psn)
             t.add_resource(SubnetRouteTableAssociation(
