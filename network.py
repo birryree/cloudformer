@@ -357,8 +357,12 @@ def create_cfn_template(conf_file, outfile):
         subnets.append(master_subnet)
         master_subnets.append(master_subnet)
 
-        # Associate every subnet with the private routing table
-        routing_table = public_rt
+        # Associate every subnet with the correct routing table
+        if USE_PRIVATE_SUBNETS:
+            routing_table = private_rt
+        else:
+            routing_table = public_rt
+
         for psn in subnets:
             t.add_resource(psn)
             t.add_resource(SubnetRouteTableAssociation(
