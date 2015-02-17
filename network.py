@@ -534,7 +534,7 @@ def create_cfn_template(conf_file, outfile):
         InstanceType=Ref(chefserver_instance_class),
         KeyName=Ref(keyname_param),
         SourceDestCheck=False,
-        ImageId=FindInMap('RegionMap', region, 'NATAMI'),
+        ImageId=FindInMap('RegionMap', region, 'EBSAMI'),
         NetworkInterfaces=[
             NetworkInterfaceProperty(
                 Description='Network interface for {0}'.format(chefserver_name),
