@@ -6,4 +6,4 @@ infra:
     # Worker subnets for AZ
       network:
         cidr_16_prefix: "10.151"
-        private_subnets: False
+        private_subnets: True

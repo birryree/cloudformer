@@ -121,17 +121,6 @@ def create_cfn_template(conf_file, outfile):
         ConstraintDescription='Instance size must be a valid instance type'
     ))
 
-    create_cloudstrap_bucket = t.add_parameter(
-        Parameter(
-            'CreateCloudstrapBucket',
-            Type='String',
-            Description='Whether or not to create the Cloudstrap bucket',
-            Default='no',
-            AllowedValues=['yes', 'no'],
-            ConstraintDescription='Answer must be yes or no'
-        )
-    )
-
     create_zookeeper_bucket = t.add_parameter(
         Parameter(
             'CreateZookeeperBucket',
@@ -150,9 +139,6 @@ def create_cfn_template(conf_file, outfile):
     ))
 
     conditions = {
-        "CloudstrapBucketCondition": Equals(
-            Ref(create_cloudstrap_bucket), "yes"
-        ),
         "ZookeeperBucketCondition": Equals(
             Ref(create_zookeeper_bucket), "yes"
         )
@@ -203,10 +189,16 @@ def create_cfn_template(conf_file, outfile):
         ) for p in [22, 80, 443]
     ]
 
+    #nat_egress_rules = [
+    #    SecurityGroupRule(
+    #        IpProtocol='tcp', CidrIp=DEFAULT_ROUTE, FromPort=p, ToPort=p
+    #    ) for p in [80, 443]
+    #]
+
     nat_egress_rules = [
         SecurityGroupRule(
-            IpProtocol='tcp', CidrIp=DEFAULT_ROUTE, FromPort=p, ToPort=p
-        ) for p in [80, 443]
+            IpProtocol='-1', CidrIp=DEFAULT_ROUTE, FromPort=1, ToPort=65535
+        )
     ]
 
 
@@ -375,17 +367,6 @@ def create_cfn_template(conf_file, outfile):
                 RouteTableId=Ref(routing_table),
                 DependsOn=psn.title
             ))
-
-
-    # Build an S3 bucket for this region's Cloudstrap
-    cloudstrap_bucket_name = Join('.', ['cloudstrap', CLOUDNAME, region, CLOUDENV, 'leafme'])
-    cloudstrap_bucket = t.add_resource(
-        Bucket("CloudstrapBucket",
-            BucketName=cloudstrap_bucket_name,
-            DeletionPolicy='Retain',
-            Condition="CloudstrapBucketCondition"
-        )
-    )
 
     # Babysitter Stuff (monitoring instances for death)
     # Build an SQS Queue associated with every environment
@@ -679,7 +660,7 @@ def create_cfn_template(conf_file, outfile):
 
     # Create the zookeeper s3 bucket
     zookeeper_bucket_name = Join('.', ['zookeeper', CLOUDNAME, region, CLOUDENV, 'leafme'])
-    cloudstrap_bucket = t.add_resource(
+    zookeeper_bucket = t.add_resource(
         Bucket(
             "ZookeeperBucket",
             BucketName=zookeeper_bucket_name,
