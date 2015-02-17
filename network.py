@@ -357,7 +357,6 @@ def create_cfn_template(conf_file, outfile):
         subnets.append(master_subnet)
         master_subnets.append(master_subnet)
 
-        # Associate every subnet with the correct routing table
         if USE_PRIVATE_SUBNETS:
             routing_table = private_rt
         else:
