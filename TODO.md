@@ -52,6 +52,7 @@ erber -o env=infra -o cloud=test-cloud -o deploy=babysitter lib/templates/cloud-
 
 ## Zookeeper
 - Create S3 bucket `zookeeper.CLOUDNAME.REGION.ENV.leafme`.
+  - Ensure that the contents of `lib/templates/exhibitor.properties.erb` are stored in `s3://zookeeper.CLOUDNAME.REGION.ENV.leafme/exhibitor/primary`.
 - Create IAM role `zookeeper.CLOUDNAME.ENV`.
   - Apply `default_policy.json.erb` to role.
   - Apply `zookeeper_policy.json.erb` to role.
