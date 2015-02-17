@@ -673,8 +673,8 @@ def create_cfn_template(conf_file, outfile):
     # BEGIN VPN
     vpn_ingress_rules = [
         SecurityGroupRule(
-            IpProtocol='tcp', CidrIp='0.0.0.0/0', FromPort=p, ToPort=p
-        ) for p in [22, 1194]
+            IpProtocol=p[0], CidrIp='0.0.0.0/0', FromPort=p[1], ToPort=p[1]
+        ) for p in [('tcp', 22), ('udp', 1194)]
     ]
 
     vpn_sg = t.add_resource(
@@ -752,10 +752,10 @@ def create_cfn_template(conf_file, outfile):
         AutoScalingGroup(
             "VPNASG",
             AvailabilityZones=asg_azs,
-            DesiredCapacity="0",
+            DesiredCapacity="1",
             LaunchConfigurationName=Ref(vpn_launchcfg),
-            MinSize="0",
-            MaxSize="0",
+            MinSize="1",
+            MaxSize="1",
             VPCZoneIdentifier=[Ref(sn) for sn in vpn_subnets],
             DependsOn=["{0}VpnSubnet{1}".format(VPC_NAME, zone) for zone in AVAILABILITY_ZONES]
         )
