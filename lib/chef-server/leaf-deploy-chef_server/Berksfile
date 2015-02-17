@@ -1,0 +1,7 @@
+source "https://supermarket.chef.io"
+
+metadata
+
+cookbook 'chef-server',
+    :git => "https://github.com/jdhebden/chef-server",
+    :ref => "e37427bc7b9fab83e33745926d18946b3e9db5fd"

@@ -100,6 +100,13 @@ def create_cfn_template(conf_file, outfile):
         ConstraintDescription='Instance size must be a valid instance type'
     ))
 
+    chefserver_instance_class = t.add_parameter(Parameter(
+        'ChefServerInstanceType', Type='String', Default='t2.medium',
+        Description='Chef Server instance type',
+        AllowedValues=allowed_instance_values,
+        ConstraintDescription='Instance size must be a valid instance type'
+    ))
+
     zookeeper_instance_class = t.add_parameter(Parameter(
         'ZookeeperInstanceType', Type='String', Default='m3.medium',
         Description='Zookeeper instance type',
@@ -456,6 +463,100 @@ def create_cfn_template(conf_file, outfile):
                              "-o", "region=" + REGION,
                              "./lib/templates/default_policy.json.erb"
                         ]))
+
+    asg_azs = [Join('', [Ref('AWS::Region'), az]) for az in AVAILABILITY_ZONES]
+
+
+    # Create IAM role for the chefserver instance
+    # load the policies
+    chefserver_role_name = '.'.join(['chefserver', CLOUDNAME, CLOUDENV])
+    chefserver_iam_role = t.add_resource(
+        Role(
+            "ChefServerIamRole",
+            AssumeRolePolicyDocument=assume_role_policy,
+            Path="/",
+            Policies=[
+                Policy(
+                    PolicyName="ChefServerPolicy",
+                    PolicyDocument=json.loads(subprocess.check_output([
+                                        "erber", "-o", "env=" + CLOUDENV, 
+                                                 "-o", "cloud=" + CLOUDNAME,
+                                                 "-o", "region=" + REGION,
+                                                 "./lib/templates/chefserver_policy.json.erb"
+                                    ]))
+                ),
+                Policy(
+                    PolicyName="ChefserverDefaultPolicy",
+                    PolicyDocument=default_policy
+                )
+            ],
+            DependsOn=vpc.title
+        )
+    )
+
+    chefserver_instance_profile = t.add_resource(
+        InstanceProfile(
+            "chefserverInstanceProfile",
+            Path="/",
+            Roles=[Ref(chefserver_iam_role)],
+            DependsOn=chefserver_iam_role.title
+        )
+    )
+
+
+    chefserver_user_data = subprocess.check_output([
+        "erber", "-o", "env=" + CLOUDENV, 
+                 "-o", "cloud=" + CLOUDNAME,
+                 "-o", "deploy=chefserver",
+                 "./lib/templates/cloud-init.bash.erb"
+    ])
+
+    chefserver_ingress_rules = [
+        SecurityGroupRule(
+            IpProtocol=p[0], CidrIp='{0}.0.0/16'.format(CIDR_PREFIX), FromPort=p[1], ToPort=p[1]
+        ) for p in [('tcp', 80), ('tcp', 443)]
+    ]
+
+    chefserver_sg = t.add_resource(
+        SecurityGroup(
+            "ChefServerSecurityGroup",
+            GroupDescription="Security Group for the Chef server",
+            VpcId=Ref(vpc),
+            SecurityGroupIngress=chefserver_ingress_rules,
+            DependsOn=vpc.title
+        )
+    )
+
+    chefserver_name = sanitize_id("ChefServer", CLOUDNAME, CLOUDENV)
+    chefserver_instance = t.add_resource(Instance(
+        chefserver_name,
+        DependsOn=vpc.title,
+        InstanceType=Ref(chefserver_instance_class),
+        KeyName=Ref(keyname_param),
+        SourceDestCheck=False,
+        ImageId=FindInMap('RegionMap', region, 'NATAMI'),
+        NetworkInterfaces=[
+            NetworkInterfaceProperty(
+                Description='Network interface for {0}'.format(chefserver_name),
+                GroupSet=[Ref(chefserver_sg)],
+                SubnetId=Ref(platform_subnets[0]),
+                AssociatePublicIpAddress=True,
+                DeviceIndex=0,
+                DeleteOnTermination=True
+            )
+        ],
+        BlockDeviceMappings=[
+            BlockDeviceMapping(
+                DeviceName="/dev/sda1",
+                Ebs=EBSBlockDevice(
+                    VolumeSize=50,
+                    DeleteOnTermination=False
+                )
+            )
+        ],
+        Tags=Tags(Name=Join('-', [VPC_NAME, 'nat', full_region_descriptor]))
+    ))
+
     # Create IAM role for the babysitter instance
     # load the policies
     babysitter_role_name = '.'.join(['babysitter', CLOUDNAME, CLOUDENV])
@@ -523,8 +624,6 @@ def create_cfn_template(conf_file, outfile):
             UserData=Base64(babysitter_user_data)
         )
     )
-
-    asg_azs = [Join('', [Ref('AWS::Region'), az]) for az in AVAILABILITY_ZONES]
 
     # Create the babysitter autoscaling group
     babysitter_asg_name = '.'.join(['babysitter', CLOUDNAME, CLOUDENV])
