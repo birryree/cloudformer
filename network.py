@@ -553,8 +553,7 @@ def create_cfn_template(conf_file, outfile):
                     DeleteOnTermination=False
                 )
             )
-        ],
-        Tags=Tags(Name=Join('-', [VPC_NAME, 'nat', full_region_descriptor]))
+        ]
     ))
 
     # Create IAM role for the babysitter instance
