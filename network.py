@@ -471,7 +471,7 @@ def create_cfn_template(conf_file, outfile):
                                     ]))
                 ),
                 Policy(
-                    PolicyName="ChefserverDefaultPolicy",
+                    PolicyName="ChefServerDefaultPolicy",
                     PolicyDocument=default_policy
                 )
             ],
@@ -523,7 +523,7 @@ def create_cfn_template(conf_file, outfile):
         NetworkInterfaces=[
             NetworkInterfaceProperty(
                 Description='Network interface for {0}'.format(chefserver_name),
-                GroupSet=[Ref(chefserver_sg)],
+                GroupSet=[Ref(chefserver_sg), Ref(ssh_sg)],
                 SubnetId=Ref(platform_subnets[0]),
                 AssociatePublicIpAddress=True,
                 DeviceIndex=0,

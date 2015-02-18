@@ -1,26 +1,61 @@
 #! /usr/bin/env bash
 set -e
+set -u
 
 export ENV='<%= env %>'
 export CLOUDNAME='<%= cloud %>'
 export DEPLOY='<%= deploy %>'
 
-AVAILABILITY_ZONE=$(curl http://169.254.169.254/latest/meta-data/placement/availability-zone)
-INSTANCE_ID=$(curl http://169.254.169.254/latest/meta-data/instance-id)
+echo " - figuring out region"
+AVAILABILITY_ZONE=$(curl --silent http://169.254.169.254/latest/meta-data/placement/availability-zone)
+INSTANCE_ID=$(curl --silent http://169.254.169.254/latest/meta-data/instance-id)
 export REGION="${AVAILABILITY_ZONE:0:${#AVAILABILITY_ZONE} - 1}"
+
+echo " - region/AZ: ${REGION}/${AVAILABILITY_ZONE}"
 
 export CHEF_ENVIRONMENT='${ENV}.${CLOUDNAME}'
 export CHEF_VERSION='12.0'
 
-
-
+echo " - apt-get update"
 apt-get update
-apt-get install -y chef-zero
 
-aws s3 --region $REGION cp s3://cloudstrap.$CLOUDNAME.$REGION.$ENV.leafme/chef-server-bootstrap.tar.gz /tmp/chef-server-bootstrap.tar.gz
+echo " - installing awscli"
+apt-get install -y awscli
 
-pushd /tmp 2&>1
+export NODE_NAME="$DEPLOY.$CLOUDNAME.$ENV.${INSTANCE_ID:2}"
 
+echo " - updating Name tag to '${NODE_NAME}'"
+aws --region $REGION ec2 create-tags --resources $INSTANCE_ID --tags Key=Name,Value=$NODE_NAME
+
+echo " - installing chef-solo and berkshelf prereqs"
+apt-get install -y ruby2.0 ruby2.0-dev build-essential git
+echo " - installing chef-solo"
+gem2.0 install --no-ri --no-rdoc chef
+echo " - installing berkshelf"
+gem2.0 install --no-ri --no-rdoc berkshelf
+
+echo " - getting chef-server bootstrap cookbook"
+mkdir -p /tmp/chef-solo/cookbooks
+aws s3 --region $REGION cp s3://cloudstrap.$CLOUDNAME.$REGION.$ENV.leafme/chef-server-bootstrap.tar.gz /tmp/chef-solo/cookbooks/chef-server-bootstrap.tar.gz
+
+pushd /tmp/chef-solo/cookbooks 2&>1
+
+echo " - untarring chef-server-bootstrap.tar.gz"
 tar xzvf chef-server-bootstrap.tar.gz
+rm chef-server-bootstrap.tar.gz
+
+echo " - writing solo.rb"
+echo 'cookbook_path             "/tmp/chef-solo/cookbooks"'            > /tmp/chef-solo/solo.rb
+echo "log_level                 :debug"                               >> /tmp/chef-solo/solo.rb
+echo "log_location              '/var/log/chef.log'"                  >> /tmp/chef-solo/solo.rb
+echo "node_name                 '$NODE_NAME'"                         >> /tmp/chef-solo/solo.rb
+
+echo " - berks vendor"
+berks vendor -b ./chef-server-bootstrap/Berksfile .
+
+echo " - seeding json file with node info"
+
+echo " - running chef-solo"
+chef-solo -c /tmp/chef-solo/solo.rb -o chef-server-bootstrap -j /tmp/chef-solo/data.json
 
 popd 2&>1
