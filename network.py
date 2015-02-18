@@ -54,7 +54,6 @@ def create_cfn_template(conf_file, outfile):
         config = yaml.load(yfile)
         infra = config['infra'][0]
 
-    DEFAULT_ROUTE = '0.0.0.0/0'
     CIDR_PREFIX= infra['network']['cidr_16_prefix']
     CLOUDNAME = infra['cloudname']
     CLOUDENV = infra['env']
@@ -62,25 +61,6 @@ def create_cfn_template(conf_file, outfile):
     REGION = infra['region']
 
     VPC_NAME = sanitize_id(CLOUDNAME, CLOUDENV)
-
-    t = Template()
-    t.add_version('2010-09-09')
-
-    t.add_description('This is a Cloudformation script that creates the base VPC across three AZs, with 1 public subnet, 3 private subnets, and proper NAT and routing tables.')
-
-    # Parameters for the Cloudformation Template
-    t.add_mapping('RegionMap',
-        {
-            'us-east-1': {'NATAMI': 'ami-184dc970',
-                          'EBSAMI': 'ami-86562dee',
-                          'INSTANCESTOREAMI': 'ami-cc5229a4'},
-            'us-west-1': {'NATAMI': 'ami-a98396ec'},
-            'us-west-2': {'NATAMI': 'ami-290f4119'},
-            'eu-west-1': {'NATAMI': 'ami-14913f63'},
-            'ap-northeast-1': { 'NATAMI': 'ami-27d6e626'},
-            'ap-southeast-1': { 'NATAMI': 'ami-6aa38238'},
-            'ap-southeast-2': { 'NATAMI': 'ami-893f53b3'},
-        })
 
     allowed_instance_values = ['t2.micro', 't2.medium', 't2.medium', 'm3.medium',
                        'm3.large', 'm3.xlarge', 'c3.large', 'c3.xlarge']
