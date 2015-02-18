@@ -493,7 +493,7 @@ def create_cfn_template(conf_file, outfile):
         "erber", "-o", "env=" + CLOUDENV, 
                  "-o", "cloud=" + CLOUDNAME,
                  "-o", "deploy=chefserver",
-                 "./lib/templates/cloud-init.bash.erb"
+                 "./lib/templates/chefserver-init.bash.erb"
     ])
 
     chefserver_ingress_rules = [
@@ -582,7 +582,7 @@ def create_cfn_template(conf_file, outfile):
         "erber", "-o", "env=" + CLOUDENV, 
                  "-o", "cloud=" + CLOUDNAME,
                  "-o", "deploy=babysitter",
-                 "./lib/templates/cloud-init.bash.erb"
+                 "./lib/templates/default-init.bash.erb"
     ])
 
 
@@ -714,7 +714,7 @@ def create_cfn_template(conf_file, outfile):
         "erber", "-o", "env=" + CLOUDENV,
                  "-o", "cloud=" + CLOUDNAME,
                  "-o", "deploy=zookeeper",
-                 "./lib/templates/cloud-init.bash.erb"
+                 "./lib/templates/default-init.bash.erb"
     ])
 
     # Launch Configuration for zookeepers
@@ -811,7 +811,7 @@ def create_cfn_template(conf_file, outfile):
         "erber", "-o", "env=" + CLOUDENV,
                  "-o", "cloud=" + CLOUDNAME,
                  "-o", "deploy=vpn",
-                 "./lib/templates/cloud-init.bash.erb"
+                 "./lib/templates/default-init.bash.erb"
     ])
 
     # Launch Configuration for vpns
