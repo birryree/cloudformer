@@ -30,6 +30,16 @@
       "Resource": [
         "arn:aws:sns:<%= region %>:*:chef-deregistration_<%= cloud %>_<%= env %>"
       ]
-    }
+    },
+    {
+      "Sid": "",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::cloudstrap.<%= cloud %>.<%= region %>.<%= env %>.leafme/babysitter-knife.pem"
+      ]
+    },
   ]
 }

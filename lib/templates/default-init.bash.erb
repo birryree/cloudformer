@@ -33,19 +33,17 @@ CHEF_SERVER_URL="https://api.opscode.com/organizations/leaf-$ENV"
 
 NODE_NAME="$DEPLOY.$CLOUDNAME.$ENV.${INSTANCE_ID:2}"
 
-echo " - updating Name tag to '#{NODE_NAME}'"
+echo " - updating Name tag to '${NODE_NAME}'"
 aws --region $REGION ec2 create-tags --resources $INSTANCE_ID --tags Key=Name,Value=$NODE_NAME
 
 echo " - placing /etc/chef/client.rb"
-rm /etc/chef/client.rb > /dev/null 2&>1 || true
-
-echo "chef_server_url           '$CHEF_SERVER_URL'"                             >> /etc/chef/client.rb
+echo "chef_server_url           '$CHEF_SERVER_URL'"                              > /etc/chef/client.rb
 echo "validation_client_name    'leaf-$ENV-validator'"                          >> /etc/chef/client.rb
 echo "validation_key            '/etc/chef/validation.pem'"                     >> /etc/chef/client.rb
 echo "log_level                 :info"                                          >> /etc/chef/client.rb
 # TODO: logrotate
 echo "log_location              '/var/log/chef.log'"                            >> /etc/chef/client.rb
-echo "environment               '${CLOUDNAME}_${ENV}'"                              >> /etc/chef/client.rb
+echo "environment               '${CLOUDNAME}_${ENV}'"                          >> /etc/chef/client.rb
 echo "node_name                 '$NODE_NAME'"                                   >> /etc/chef/client.rb
 
 echo " - running chef-client::delete_validation"

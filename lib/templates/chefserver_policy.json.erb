@@ -28,7 +28,8 @@
       ],
       "Effect": "Allow",
       "Resource": [
-        "arn:aws:s3:::cloudstrap.<%= cloud %>.<%= region %>.<%= env %>.leafme/validator.pem"
+        "arn:aws:s3:::cloudstrap.<%= cloud %>.<%= region %>.<%= env %>.leafme/validator.pem",
+        "arn:aws:s3:::cloudstrap.<%= cloud %>.<%= region %>.<%= env %>.leafme/babysitter-knife.pem"
       ]
     }
   ]
