@@ -2,12 +2,12 @@
 # -*- coding: utf-8 -*-
 
 import os
+import yaml
 from collections import defaultdict
 
 import jinja2
 from enum import IntEnum
 from troposphere import Template, Join, Ref
-
 
 def sanitize_id(*args):
     '''This sanitizes logical identifiers for Cloudformation as they are not allowed
@@ -20,6 +20,8 @@ def sanitize_id(*args):
     return ''.join([c for c in identifier if c.isalnum()])
 
 
+
+# These are default (sane-ish) values
 DEFAULT_ROUTE = '0.0.0.0/0'
 CIDR_PREFIX = '10.151'
 CLOUDNAME = 'test-cloud'
@@ -27,6 +29,24 @@ CLOUDENV = 'infra'
 REGION = 'us-east-1'
 USE_PRIVATE_SUBNETS = True
 VPC_NAME = sanitize_id(CLOUDNAME, CLOUDENV)
+
+def initialize(ymlfile):
+    global CIDR_PREFIX
+    global CLOUDNAME
+    global CLOUDENV
+    global USE_PRIVATE_SUBNETS
+    global REGION
+    global VPC_NAME
+    with open (ymlfile, 'r') as yfile:
+        config = yaml.load(yfile)
+        infra = config['infra'][0]
+
+    CIDR_PREFIX = infra['network']['cidr_16_prefix']
+    CLOUDNAME = infra['cloudname']
+    CLOUDENV = infra['env']
+    USE_PRIVATE_SUBNETS = infra['network']['private_subnets']
+    REGION = infra['region']
+    VPC_NAME = sanitize_id(CLOUDNAME, CLOUDENV)
 
 
 ASSUME_ROLE_POLICY = {
@@ -44,6 +64,7 @@ ALLOWED_INSTANCE_SIZES = ['t2.micro', 't2.small', 't2.medium', 'm3.medium',
         'm3.large', 'm3.xlarge', 'm3.2xlarge', 'c3.large', 'c3.xlarge', 'c3.2xlarge']
 
 def usable_instances():
+    """Retrieve list of AWS instance sizes that can be used"""
     return ALLOWED_INSTANCE_SIZES
 
 Amis = IntEnum('Amis', 'NAT EBS INSTANCE')
@@ -81,6 +102,7 @@ template.add_mapping('RegionMap',
 keyname = None
 
 def load_template(filename, vardict):
+    """Loads a template from the filesystem and renders it with variables replaced"""
     j2env = jinja2.Environment(loader=jinja2.FileSystemLoader('{0}/lib/templates'.format(
         os.path.dirname(__file__),
         trim_blocks=True
@@ -101,6 +123,7 @@ def add_vpc_subnets(vpc, identifier, subnets):
 
 
 def get_vpc_subnets(vpc, identifier):
+    """Retrieve subnets associated with a specific VPC"""
     return tuple(vpc_subnets[vpc][identifier])
 
 

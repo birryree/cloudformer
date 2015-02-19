@@ -1,12 +1,12 @@
-import yaml
 import argparse
 import os
 import pkgutil
+import sys
 
 import network
-import config as cfn
+import config
 
-from components import babysitter, zookeeper, vpn
+#from components import babysitter, zookeeper, vpn
 
 def _create_parser():
     parser = argparse.ArgumentParser(prog='generate.py')
@@ -14,30 +14,47 @@ def _create_parser():
     parser.add_argument('-o', '--outfile', type=str, help='The file to write the Cloudformation template to')
     return parser
 
+def _emit_component_configurations():
+    # Get all submodules in components
+    for loader, module_name, ispkg in pkgutil.iter_modules(['components']):
+        if module_name not in sys.modules:
+            print module_name
+            mod = __import__("components.{0}".format(module_name))
+            # Determine if EMIT is set to a non-True value (if module has one).
+            cls = getattr(mod, module_name)
+
+            generate_for_module = True
+
+            # generate configuration for module if it doesn't have the EMIT
+            # property set or if it's set to something 'true'
+            if (hasattr(cls, 'EMIT') and cls.EMIT) or not hasattr(cls, 'EMIT'):
+                print("Generating configuration for {0} module".format(module_name))
+                try:
+                    cls.emit_configuration()
+                except AttributeError:
+                    print("Could not generate configuration for {0} module as it's missing emit_configuration".format(module_name))
+            else:
+                print("Skipping configuration for {0} module because EMIT was set to False".format(module_name))
+
+
 def generate_cloudformation_template(outfile):
+    # network has to be emitted first since it sets a lot of state that everything else
+    # depends on
     network.emit_configuration()
-    babysitter.emit_configuration()
-    zookeeper.emit_configuration()
-    vpn.emit_configuration()
+    _emit_component_configurations()
+
     with open(outfile, 'w') as ofile:
-        print >> ofile, cfn.template.to_json()
-
-def create_cfn_template(conf_file, outfile):
-    # TODO this is dead, repurpose it
-    with open (conf_file, 'r') as yfile:
-        config = yaml.load(yfile)
-        infra = config['infra'][0]
-
-    CIDR_PREFIX= infra['network']['cidr_16_prefix']
-    CLOUDNAME = infra['cloudname']
-    CLOUDENV = infra['env']
-    USE_PRIVATE_SUBNETS = infra['network']['private_subnets']
-    REGION = infra['region']
+        print >> ofile, config.template.to_json()
 
 if __name__ == '__main__':
     arg_parser = _create_parser()
     args = arg_parser.parse_args()
 
     print('Creating cloudformation template using config file: {0} '.format(args.config))
-    #create_cfn_template(args.config, args.outfile)
+
+    if args.config:
+        print "Initializing with external YAML configuration"
+        config.initialize(args.config)
+        print config.CIDR_PREFIX
+
     generate_cloudformation_template(args.outfile)

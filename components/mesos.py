@@ -10,6 +10,8 @@ from troposphere import Parameter
 
 import config as cfn
 
+EMIT = False
+
 def emit_configuration():
     vpc = cfn.vpcs[0]
     template = cfn.template
