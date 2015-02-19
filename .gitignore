@@ -1,3 +1,5 @@
+*.tar.gz
+
 *.template
 *.swp
 venv
