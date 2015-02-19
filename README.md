@@ -11,6 +11,8 @@ This is just a bunch of Python scripts that use [`troposphere`](https://github.c
 
 The `conf.py` file has some limited configuration options that you can specify (for stuff like name of the VPC and the `/16` CIDR block prefix you want, as well as whether or not subnets are private or public).
 
+The configuration file is optional unncessary as default settings are specified in `config.py`.
+
 # Building scripts
 
 It's easiest to use `virtualenv` run this (so I don't pollute your environment).
@@ -18,6 +20,9 @@ It's easiest to use `virtualenv` run this (so I don't pollute your environment).
     virtualenv venv
     source venv/bin/activate
     pip install -r requirements.pip
-    python generate.py -c conf.yml -o infra.template
+
+    # Run either of the next two commands
+    python generate.py -o infra.template # accept the default specified at the top of config.py
+    python generate.py -c conf.yml -o infra.template # specify a conf.yml file that overrides settings in config.py
 
 This will generate an `infra.template` file that you can use for CloudFormation.

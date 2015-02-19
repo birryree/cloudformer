@@ -10,7 +10,7 @@ import config
 
 def _create_parser():
     parser = argparse.ArgumentParser(prog='generate.py')
-    parser.add_argument('-c', '--config', type=str, required=True, help='The configuration YAML file to use to generate the Cloudformation template')
+    parser.add_argument('-c', '--config', type=str, help='The configuration YAML file to use to generate the Cloudformation template')
     parser.add_argument('-o', '--outfile', type=str, help='The file to write the Cloudformation template to')
     return parser
 
