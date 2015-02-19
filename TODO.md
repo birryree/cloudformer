@@ -17,6 +17,8 @@ erber -o env=infra -o cloud=test-cloud -o region=us-east-1 lib/templates/default
 ```
 
 - Create S3 bucket `CLOUDSTRAP_BUCKET`.
+  - Upload `s3://CLOUDSTRAP_BUCKET/chef-server-bootstrap.tar.gz`, containing the `chef-solo` cookbook to install `chef-server`. 
+  - Upload `s3://CLOUDSTRAP_BUCKET/chef-github.pem`, containing a private key okayed for use with a readonly Chef account.
   - Upload `s3://CLOUDSTRAP_BUCKET/validator.pem` to bucket. (If hosted-chef, will be named `leaf-ENV-validator.pem`, change it.)
   - Upload VPN server credentials to `s3://BUCKET/vpn-server`
 - Create security group `ssh-accessible.CLOUDNAME.ENV`.

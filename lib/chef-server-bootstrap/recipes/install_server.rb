@@ -23,14 +23,21 @@ end
 
 require 'digest'
 babysitter_password = Digest::SHA256.digest(Random.rand(1000000) + "babysitter").hexdigest
+uploader_password = Digest::SHA256.digest(Random.rand(1000000) + "babysitter").hexdigest
 
 bash "prep org" do
   not_if ::File.exist?("/chef-orgs-done")
 
   code <<-endcode
     chef-server-ctl user-create babysitter Baby Sitter devops@leaf.me #{babysitter_password} --filename /root/babysitter.pem
+    echo '#{babysitter_password}' > /root/babysitter.pwd
+    chef-server-ctl user-create uploader Github Uploader devops@leaf.me #{uploader_password} --filename /root/uploader.pem
+    echo '#{uploader_password}' > /root/uploader.pwd
     chef-server-ctl org-create  leaf Leaf --association_user babysitter --filename /root/leaf.pem
 
-    echo '#{babysitter_password} > /chef-orgs-done'
+    touch /chef-orgs-done
   endcode
 end
+
+directory "/opt/chef-services" do
+  action :create
