@@ -1,838 +1,261 @@
-import yaml
-import argparse
-import json
-import os
-import subprocess
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
-from troposphere import Parameter, Ref, Tags, Template, GetAtt
-from troposphere import Join, Output, Select, FindInMap, Base64
-from troposphere import Equals
+# This module initializes the VPCs necessary for the rest of cloud formation
 
-from troposphere.autoscaling import LaunchConfiguration, AutoScalingGroup, Tag
-from troposphere.autoscaling import Metadata, NotificationConfiguration
-from troposphere.autoscaling import EC2_INSTANCE_TERMINATE
-from troposphere.cloudwatch import Alarm, MetricDimension
-from troposphere.iam import Role, Group, PolicyType, LoginProfile, Policy, InstanceProfile
-from troposphere.ec2 import NetworkAcl, NetworkInterfaceProperty
-from troposphere.ec2 import BlockDeviceMapping, EBSBlockDevice
-from troposphere.ec2 import Route
-from troposphere.ec2 import SubnetRouteTableAssociation
-from troposphere.ec2 import Subnet
-from troposphere.ec2 import VPNConnectionRoute
-from troposphere.ec2 import RouteTable
-from troposphere.ec2 import VPC
-from troposphere.ec2 import NetworkAclEntry
-from troposphere.ec2 import VPNGateway
-from troposphere.ec2 import SubnetNetworkAclAssociation
-from troposphere.ec2 import VPNConnection
-from troposphere.ec2 import InternetGateway
-from troposphere.ec2 import VPCGatewayAttachment
-from troposphere.ec2 import SecurityGroup, SecurityGroupRule, SecurityGroupIngress
-from troposphere.ec2 import Instance
-from troposphere.sqs import Queue, RedrivePolicy
-from troposphere.sns import Topic, Subscription
-from troposphere.s3 import Bucket
+from itertools import chain
 
-os.path.dirname(os.path.realpath(__file__))
+from troposphere import Parameter, Ref, Tags, Join, Output, Select, FindInMap
+import troposphere.ec2 as ec2
 
-def _create_parser():
-    parser = argparse.ArgumentParser(prog='network.py')
-    parser.add_argument('-c', '--config', type=str, required=True, help='The configuration YAML file to use to generate the Cloudformation template')
-    parser.add_argument('-o', '--outfile', type=str, help='The file to write the Cloudformation template to')
-    return parser
+import config as cfn
 
-def sanitize_id(*args):
-    '''This sanitizes logical identifiers for Cloudformation as they are not allowed
-    to have anything but [A-Za-z0-9]'''
+def emit_configuration():
+    # Build the VPC here
+    template = cfn.template
 
-    identifier = ''.join(args)
-    return ''.join([c for c in identifier if c.isalnum()])
-
-
-def create_cfn_template(conf_file, outfile):
-    with open (conf_file, 'r') as yfile:
-        config = yaml.load(yfile)
-        infra = config['infra'][0]
-
-    CIDR_PREFIX= infra['network']['cidr_16_prefix']
-    CLOUDNAME = infra['cloudname']
-    CLOUDENV = infra['env']
-    USE_PRIVATE_SUBNETS = infra['network']['private_subnets']
-    REGION = infra['region']
-
-    VPC_NAME = sanitize_id(CLOUDNAME, CLOUDENV)
-
-    allowed_instance_values = ['t2.micro', 't2.medium', 't2.medium', 'm3.medium',
-                       'm3.large', 'm3.xlarge', 'c3.large', 'c3.xlarge']
-
-
-    nat_instance_class = t.add_parameter(Parameter(
-        'NatInstanceType', Type='String', Default='t2.micro',
-        Description='NAT instance type',
-        AllowedValues=allowed_instance_values,
-        ConstraintDescription='Instance size must be a valid instance type'
-    ))
-
-    babysitter_instance_class = t.add_parameter(Parameter(
-        'BabysitterInstanceType', Type='String', Default='t2.micro',
-        Description='Chef Babysitter instance type',
-        AllowedValues=allowed_instance_values,
-        ConstraintDescription='Instance size must be a valid instance type'
-    ))
-
-    chefserver_instance_class = t.add_parameter(Parameter(
-        'ChefServerInstanceType', Type='String', Default='t2.medium',
-        Description='Chef Server instance type',
-        AllowedValues=allowed_instance_values,
-        ConstraintDescription='Instance size must be a valid instance type'
-    ))
-
-    zookeeper_instance_class = t.add_parameter(Parameter(
-        'ZookeeperInstanceType', Type='String', Default='m3.medium',
-        Description='Zookeeper instance type',
-        AllowedValues=allowed_instance_values,
-        ConstraintDescription='Instance size must be a valid instance type'
-    ))
-
-    vpn_instance_class = t.add_parameter(Parameter(
-        'VPNInstanceType', Type='String', Default='m3.medium',
-        Description='VPN instance type',
-        AllowedValues=allowed_instance_values,
-        ConstraintDescription='Instance size must be a valid instance type'
-    ))
-
-    create_zookeeper_bucket = t.add_parameter(
+    # Parameters here
+    nat_instance_class = template.add_parameter(
         Parameter(
-            'CreateZookeeperBucket',
-            Type='String',
-            Description='Whether or not to create the Zookeeper bucket. This option is provided in case the bucket already exists.',
-            Default='no',
-            AllowedValues=['yes', 'no'],
-            ConstraintDescription='Answer must be yes or no'
+            'NatInstanceType', Type='String', Default='t2.micro',
+            Description='NAT instance type',
+            AllowedValues=cfn.usable_instances(),
+            ConstraintDescription='Instance size must be a valid instance type'
         )
     )
 
-    # An EC2 keypair to use
-    keyname_param = t.add_parameter(Parameter(
-        'KeyName', Type='AWS::EC2::KeyPair::KeyName',
-        Description='Name of an existing EC2 KeyPair to enable SSH access'
-    ))
-
-    conditions = {
-        "ZookeeperBucketCondition": Equals(
-            Ref(create_zookeeper_bucket), "yes"
+    keyname_param = template.add_parameter(
+        Parameter(
+            'KeyName', Type='AWS::EC2::KeyPair::KeyName',
+            Description='Name of an existing EC2 KeyPair to enable SSH access into machines'
         )
-    }
+    )
 
-    for c in conditions:
-        t.add_condition(c, conditions[c])
+    cfn.keyname = keyname_param
 
-    # Set the AZs this template creates resources in
-    AVAILABILITY_ZONES = ['c', 'd', 'e']
-    az_string = ','.join(AVAILABILITY_ZONES)
-    availability_zones = t.add_parameter(Parameter(
-        'AvailabilityZones', Type='CommaDelimitedList', Default=az_string,
-        Description='A list of three availability zone letters to distribute the subnets across.'
-    ))
+    vpc = template.add_resource(
+        ec2.VPC(
+            'VPC',
+            CidrBlock='{0}.0.0/16'.format(cfn.CIDR_PREFIX),
+            EnableDnsSupport=True,
+            Tags=Tags(Name=Join('-', [cfn.VPC_NAME, Ref('AWS::Region')]))
+        )
+    )
 
-    # The VPC
-    vpc = t.add_resource(VPC(
-        'VPC', CidrBlock='{0}.0.0/16'.format(CIDR_PREFIX), EnableDnsSupport=True,
-        Tags=Tags(Name=Join('-', [VPC_NAME, Ref('AWS::Region')]))
-    ))
+    # Add the VPC to cloudformation
+    cfn.vpcs.append(vpc)
 
-    igw = t.add_resource(InternetGateway(
-        'InternetGateway', Tags=Tags(Name='InternetGateway'),
-        DependsOn=vpc.title
-    ))
+    gateway = template.add_resource(
+        ec2.InternetGateway(
+            'InternetGateway',
+            Tags=Tags(Name='InternetGateway'),
+            DependsOn=vpc.title
+        )
+    )
 
-    gateway_attachment = t.add_resource(VPCGatewayAttachment(
-        'GatewayAttachment', VpcId=Ref(vpc), InternetGatewayId=Ref(igw),
-        DependsOn=igw.title
-    ))
+    gateway_attachment = template.add_resource(
+        ec2.VPCGatewayAttachment(
+            'GatewayAttachment',
+            VpcId=Ref(vpc),
+            InternetGatewayId=Ref(gateway),
+            DependsOn=gateway.title
+        )
+    )
 
-    public_rt = t.add_resource(RouteTable(
-        '{0}PublicRouteTable'.format(VPC_NAME), VpcId=Ref(vpc),
-        DependsOn=vpc.title
-    ))
+    public_routing_table = template.add_resource(
+        ec2.RouteTable(
+            '{0}PublicRouteTable'.format(cfn.VPC_NAME),
+            VpcId=Ref(vpc),
+            DependsOn=vpc.title
+        )
+    )
 
-    # add in the public routes for this
-    t.add_resource(Route('PublicRoute', RouteTableId=Ref(public_rt),
-        DestinationCidrBlock=DEFAULT_ROUTE,
-        DependsOn=gateway_attachment.title,
-        GatewayId=Ref(igw),
-    ))
+    # Add in the public route through the gateway
+    template.add_resource(
+        ec2.Route(
+            'PublicRoute',
+            RouteTableId=Ref(public_routing_table),
+            DestinationCidrBlock=cfn.DEFAULT_ROUTE,
+            GatewayId=Ref(gateway),
+            DependsOn=gateway_attachment.title
+        )
+    )
 
+    # Define the Security Group for the NATs
     nat_ingress_rules = [
-        SecurityGroupRule(
-            IpProtocol='tcp', CidrIp=DEFAULT_ROUTE, FromPort=p, ToPort=p
+        ec2.SecurityGroupRule(
+            IpProtocol='tcp', CidrIp=cfn.DEFAULT_ROUTE, FromPort=p, ToPort=p
         ) for p in [22, 80, 443]
     ]
 
-    #nat_egress_rules = [
-    #    SecurityGroupRule(
-    #        IpProtocol='tcp', CidrIp=DEFAULT_ROUTE, FromPort=p, ToPort=p
-    #    ) for p in [80, 443]
-    #]
-
     nat_egress_rules = [
-        SecurityGroupRule(
-            IpProtocol='-1', CidrIp=DEFAULT_ROUTE, FromPort=1, ToPort=65535
+        ec2.SecurityGroupRule(
+            IpProtocol='-1', CidrIp=cfn.DEFAULT_ROUTE, FromPort=0, ToPort=65535,
         )
     ]
 
 
-    nat_sg = t.add_resource(SecurityGroup(
-        "NATSecurityGroup",
-        GroupDescription="Security Group for NAT instances",
-        VpcId=Ref(vpc),
-        SecurityGroupIngress=nat_ingress_rules,
-        SecurityGroupEgress=nat_egress_rules,
-        DependsOn=vpc.title
-    ))
-
-    # Add in a security group for SSH access from the internets
-    ssh_ingress_rules = [
-        SecurityGroupRule(
-            IpProtocol='tcp', CidrIp=DEFAULT_ROUTE, FromPort=p, ToPort=p
-        ) for p in [22]
-    ]
-
-    ssh_sg = t.add_resource(SecurityGroup(
-        "SSHAccessibleSecurityGroup",
-        GroupDescription="Allow SSH access from public",
-        VpcId=Ref(vpc),
-        SecurityGroupIngress=ssh_ingress_rules,
-        DependsOn=vpc.title,
-        Tags=Tags(Name='.'.join(['ssh-accessible', CLOUDNAME, CLOUDENV]))
-    ))
-
+    nat_security_group = template.add_resource(
+        ec2.SecurityGroup(
+            'NATSecurityGroup',
+            GroupDescription='Security Group for NAT instances',
+            VpcId=Ref(vpc),
+            SecurityGroupIngress=nat_ingress_rules,
+            SecurityGroupEgress=nat_egress_rules,
+            DependsOn=vpc.title
+        )
+    )
 
     platform_subnets = list()
     master_subnets = list()
     public_subnets = list()
     vpn_subnets = list()
+    worker_subnets = list()
+    subnet_identifier = 'private'
 
-    for idx, zone in enumerate(AVAILABILITY_ZONES):
+    for idx, zone in enumerate(cfn.get_availability_zones()):
         region = Ref('AWS::Region')
-        availability_zone = Select(idx, Ref(availability_zones))
-        full_region_descriptor = Join('', [region, availability_zone])
+        full_region_descriptor = Join('', [region, zone])
+
         # create a public subnet in each availability zone
-        public_subnet = t.add_resource(Subnet(
-            '{0}PublicSubnet{1}'.format(VPC_NAME, zone),
-            VpcId=Ref(vpc),
-            CidrBlock='{0}.{1}.0/24'.format(CIDR_PREFIX, 80 + idx),
-            AvailabilityZone=full_region_descriptor,
-            DependsOn=vpc.title,
-            Tags=Tags(Name=Join('-', [VPC_NAME, 'public-subnet', full_region_descriptor]))
-        ))
+        public_subnet = template.add_resource(
+            ec2.Subnet(
+                '{0}PublicSubnet{1}'.format(cfn.VPC_NAME, zone),
+                VpcId=Ref(vpc),
+                CidrBlock='{0}.{1}.0/24'.format(cfn.CIDR_PREFIX, 80 + idx),
+                AvailabilityZone=full_region_descriptor,
+                DependsOn=vpc.title,
+                Tags=Tags(Name=Join('-', [cfn.VPC_NAME, 'public-subnet', full_region_descriptor]))
+            )
+        )
         public_subnets.append(public_subnet)
 
         # Associate the public routing table with the subnet
-        t.add_resource(SubnetRouteTableAssociation(
-            '{0}PublicRouteTableAssociation'.format(public_subnet.title),
-            SubnetId=Ref(public_subnet),
-            RouteTableId=Ref(public_rt),
-            DependsOn=public_subnet.title
-        ))
+        template.add_resource(
+            ec2.SubnetRouteTableAssociation(
+                '{0}PublicRouteTableAssociation'.format(public_subnet.title),
+                SubnetId=Ref(public_subnet),
+                RouteTableId=Ref(public_routing_table),
+                DependsOn=public_subnet.title
+            )
+        )
 
-        vpn_subnet = t.add_resource(
-            Subnet(
-                '{0}VpnSubnet{1}'.format(VPC_NAME, zone),
-                VpcId=Ref(vpc),
-                CidrBlock='{0}.{1}.0/24'.format(CIDR_PREFIX, 60 + idx),
-                AvailabilityZone=full_region_descriptor,
+        # Create the NAT instance in the public subnet
+        nat_name = '{0}Nat{1}'.format(cfn.VPC_NAME, zone)
+        nat_instance = template.add_resource(
+            ec2.Instance(
+                nat_name,
                 DependsOn=vpc.title,
-                Tags=Tags(Name=Join('.', [full_region_descriptor, CLOUDNAME, CLOUDENV, "vpn-client"]))
-        ))
-        vpn_subnets.append(vpn_subnet)
-
-        # Associate the public routing table with the subnet
-        t.add_resource(SubnetRouteTableAssociation(
-            '{0}VpnRouteTableAssociation'.format(vpn_subnet.title),
-            SubnetId=Ref(vpn_subnet),
-            RouteTableId=Ref(public_rt),
-            DependsOn=vpn_subnet.title
-        ))
-
-
-        # Create the NAT in the public subnet
-        nat_name = '{0}Nat{1}'.format(VPC_NAME, zone)
-        nat_instance = t.add_resource(Instance(
-            nat_name,
-            DependsOn=vpc.title,
-            InstanceType=Ref(nat_instance_class),
-            KeyName=Ref(keyname_param),
-            SourceDestCheck=False,
-            ImageId=FindInMap('RegionMap', region, 'NATAMI'),
-            NetworkInterfaces=[
-                NetworkInterfaceProperty(
-                    Description='Network interface for {0}'.format(nat_name),
-                    GroupSet=[Ref(nat_sg)],
-                    SubnetId=Ref(public_subnet),
-                    AssociatePublicIpAddress=True,
-                    DeviceIndex=0,
-                    DeleteOnTermination=True
-                )
-            ],
-            Tags=Tags(Name=Join('-', [VPC_NAME, 'nat', full_region_descriptor]))
-        ))
-
-        # Associate a private routing table with the NAT
-        # and this AZ
-        private_rt = t.add_resource(RouteTable(
-            '{0}PrivateRouteTable{1}'.format(VPC_NAME, zone),
-            VpcId=Ref(vpc),
-            DependsOn=nat_instance.title,
-            Tags=Tags(Name=Join('-', [VPC_NAME, 'private-route-table', full_region_descriptor]))
-        ))
-
-        # create routes for private routing table
-        t.add_resource(Route('PrivateRoute{0}'.format(zone.upper()),
-            RouteTableId=Ref(private_rt),
-            DestinationCidrBlock=DEFAULT_ROUTE,
-            InstanceId=Ref(nat_instance),
-            DependsOn=private_rt.title
-        ))
-
-        subnets = list()
-
-        subnet_identifier = 'private'
-        #if USE_PRIVATE_SUBNETS else 'public'
-
-        # Create worker subnets
-        worker_subnet = Subnet(
-            '{0}{1}WorkerSubnet{2}'.format(VPC_NAME, subnet_identifier, zone),
-            VpcId=Ref(vpc),
-            CidrBlock='{0}.{1}.0/22'.format(CIDR_PREFIX, 100 + (idx  * 4)),
-            AvailabilityZone=full_region_descriptor,
-            DependsOn=vpc.title,
-            Tags=Tags(Name=Join('-', [VPC_NAME, '{0}-worker-subnet'.format(subnet_identifier), full_region_descriptor]))
-        )
-
-        subnets.append(worker_subnet)
-
-
-        # Create the platform subnet
-        platform_subnet = Subnet('{0}{1}PlatformSubnet{2}'.format(VPC_NAME, subnet_identifier, zone.upper()),
-            VpcId=Ref(vpc),
-            CidrBlock='{0}.{1}.0/24'.format(CIDR_PREFIX, 10 + idx),
-            AvailabilityZone=full_region_descriptor,
-            DependsOn=vpc.title,
-            Tags=Tags(Name=Join('-', [VPC_NAME, '{0}-platform-subnet'.format(subnet_identifier), full_region_descriptor]))
-        )
-
-        subnets.append(platform_subnet)
-        platform_subnets.append(platform_subnet)
-
-        # Create the master subnet
-        master_subnet = Subnet('{0}{1}MasterSubnet{2}'.format(VPC_NAME, subnet_identifier, zone.upper()),
-            VpcId=Ref(vpc),
-            CidrBlock='{0}.{1}.0/24'.format(CIDR_PREFIX, 90 + idx),
-            AvailabilityZone=full_region_descriptor,
-            DependsOn=vpc.title,
-            Tags=Tags(Name=Join('-', [VPC_NAME, '{0}-master-subnet'.format(subnet_identifier), full_region_descriptor]))
-        )
-
-        subnets.append(master_subnet)
-        master_subnets.append(master_subnet)
-
-        if USE_PRIVATE_SUBNETS:
-            routing_table = private_rt
-        else:
-            routing_table = public_rt
-
-        for psn in subnets:
-            t.add_resource(psn)
-            t.add_resource(SubnetRouteTableAssociation(
-                '{0}{1}RouteTableAssociation'.format(psn.title, subnet_identifier),
-                SubnetId=Ref(psn),
-                RouteTableId=Ref(routing_table),
-                DependsOn=psn.title
-            ))
-
-    # Babysitter Stuff (monitoring instances for death)
-    # Build an SQS Queue associated with every environment
-
-    # Define a parameter for where alerts go
-    babysitter_email_param = t.add_parameter(Parameter(
-        'BabysitterAlarmEmail',
-        Default='wlee@leaf.me',
-        Description='Email address to notify if there are issues in the babysitter queue',
-        Type='String'
-    ))
-
-    qname = '_'.join(['chef-deregistration', CLOUDNAME, CLOUDENV])
-    queue = t.add_resource(Queue(sanitize_id(qname),
-                VisibilityTimeout=60,
-                MessageRetentionPeriod=1209600,
-                MaximumMessageSize=16384,
-                QueueName=qname,
-            ))
-
-    alert_topic = t.add_resource(
-        Topic(
-            "BabysitterAlarmTopic",
-            DisplayName='Babysitter Alarm',
-            TopicName=qname,
-            Subscription=[
-                Subscription(
-                    Endpoint=Ref(babysitter_email_param),
-                    Protocol='email'
-                ),
-            ],
-            DependsOn=queue.title
-        )
-    )
-
-    queue_depth_alarm = t.add_resource(
-        Alarm(
-            "BabysitterQueueDepthAlarm",
-            AlarmDescription='Alarm if the queue depth grows beyond 200 messages',
-            Namespace="AWS/SQS",
-            MetricName="ApproximateNumberOfMessagesVisible",
-            Dimensions=[
-                MetricDimension(
-                    Name="QueueName",
-                    Value=GetAtt(queue, "QueueName")
-                )
-            ],
-            Statistic="Sum",
-            Period="300",
-            EvaluationPeriods="1",
-            Threshold="200",
-            ComparisonOperator="GreaterThanThreshold",
-            AlarmActions=[Ref(alert_topic), ],
-            InsufficientDataActions=[Ref(alert_topic), ],
-            DependsOn=alert_topic.title
-        ),
-    )
-
-    # this is the standard  AssumeRolePolicyStatement block
-    assume_role_policy = {
-            "Version": "2012-10-17",
-            "Statement": [{
-                "Effect": "Allow",
-                "Principal": {
-                    "Service": [ "ec2.amazonaws.com" ]
-                },
-                "Action": ["sts:AssumeRole"],
-            }]
-        }
-
-
-    default_policy = json.loads(subprocess.check_output([
-                            "erber", "-o", "env=" + CLOUDENV,
-                             "-o", "cloud=" + CLOUDNAME,
-                             "-o", "region=" + REGION,
-                             "./lib/templates/default_policy.json.erb"
-                        ]))
-
-    asg_azs = [Join('', [Ref('AWS::Region'), az]) for az in AVAILABILITY_ZONES]
-
-
-    # Create IAM role for the chefserver instance
-    # load the policies
-    chefserver_role_name = '.'.join(['chefserver', CLOUDNAME, CLOUDENV])
-    chefserver_iam_role = t.add_resource(
-        Role(
-            "ChefServerIamRole",
-            AssumeRolePolicyDocument=assume_role_policy,
-            Path="/",
-            Policies=[
-                Policy(
-                    PolicyName="ChefServerPolicy",
-                    PolicyDocument=json.loads(subprocess.check_output([
-                                        "erber", "-o", "env=" + CLOUDENV, 
-                                                 "-o", "cloud=" + CLOUDNAME,
-                                                 "-o", "region=" + REGION,
-                                                 "./lib/templates/chefserver_policy.json.erb"
-                                    ]))
-                ),
-                Policy(
-                    PolicyName="ChefserverDefaultPolicy",
-                    PolicyDocument=default_policy
-                )
-            ],
-            DependsOn=vpc.title
-        )
-    )
-
-    chefserver_instance_profile = t.add_resource(
-        InstanceProfile(
-            "chefserverInstanceProfile",
-            Path="/",
-            Roles=[Ref(chefserver_iam_role)],
-            DependsOn=chefserver_iam_role.title
-        )
-    )
-
-
-    chefserver_user_data = subprocess.check_output([
-        "erber", "-o", "env=" + CLOUDENV, 
-                 "-o", "cloud=" + CLOUDNAME,
-                 "-o", "deploy=chefserver",
-                 "./lib/templates/chefserver-init.bash.erb"
-    ])
-
-    chefserver_ingress_rules = [
-        SecurityGroupRule(
-            IpProtocol=p[0], CidrIp='{0}.0.0/16'.format(CIDR_PREFIX), FromPort=p[1], ToPort=p[1]
-        ) for p in [('tcp', 80), ('tcp', 443)]
-    ]
-
-    chefserver_sg = t.add_resource(
-        SecurityGroup(
-            "ChefServerSecurityGroup",
-            GroupDescription="Security Group for the Chef server",
-            VpcId=Ref(vpc),
-            SecurityGroupIngress=chefserver_ingress_rules,
-            DependsOn=vpc.title
-        )
-    )
-
-    chefserver_name = sanitize_id("ChefServer", CLOUDNAME, CLOUDENV)
-    chefserver_instance = t.add_resource(Instance(
-        chefserver_name,
-        DependsOn=vpc.title,
-        InstanceType=Ref(chefserver_instance_class),
-        KeyName=Ref(keyname_param),
-        SourceDestCheck=False,
-        ImageId=FindInMap('RegionMap', region, 'EBSAMI'),
-        NetworkInterfaces=[
-            NetworkInterfaceProperty(
-                Description='Network interface for {0}'.format(chefserver_name),
-                GroupSet=[Ref(chefserver_sg)],
-                SubnetId=Ref(platform_subnets[0]),
-                AssociatePublicIpAddress=True,
-                DeviceIndex=0,
-                DeleteOnTermination=True
-            )
-        ],
-        BlockDeviceMappings=[
-            BlockDeviceMapping(
-                DeviceName="/dev/sda1",
-                Ebs=EBSBlockDevice(
-                    VolumeSize=50,
-                    DeleteOnTermination=False
-                )
-            )
-        ]
-    ))
-
-    # Create IAM role for the babysitter instance
-    # load the policies
-    babysitter_role_name = '.'.join(['babysitter', CLOUDNAME, CLOUDENV])
-    babysitter_iam_role = t.add_resource(
-        Role(
-            "BabysitterIamRole",
-            AssumeRolePolicyDocument=assume_role_policy,
-            Path="/",
-            Policies=[
-                Policy(
-                    PolicyName="BabySitterPolicy",
-                    PolicyDocument=json.loads(subprocess.check_output([
-                                        "erber", "-o", "env=" + CLOUDENV, 
-                                                 "-o", "cloud=" + CLOUDNAME,
-                                                 "-o", "region=" + REGION,
-                                                 "./lib/templates/babysitter_policy.json.erb"
-                                    ]))
-                ),
-                Policy(
-                    PolicyName="BabySitterDefaultPolicy",
-                    PolicyDocument=default_policy
-                )
-            ],
-            DependsOn=vpc.title
-        )
-    )
-
-    babysitter_instance_profile = t.add_resource(
-        InstanceProfile(
-            "babysitterInstanceProfile",
-            Path="/",
-            Roles=[Ref(babysitter_iam_role)],
-            DependsOn=babysitter_iam_role.title
-        )
-    )
-
-
-    babysitter_user_data = subprocess.check_output([
-        "erber", "-o", "env=" + CLOUDENV, 
-                 "-o", "cloud=" + CLOUDNAME,
-                 "-o", "deploy=babysitter",
-                 "./lib/templates/default-init.bash.erb"
-    ])
-
-
-    # Create babysitter launch configuration
-    babysitter_launchcfg = t.add_resource(
-        LaunchConfiguration(
-            "BabysitterLaunchConfiguration",
-            ImageId=FindInMap('RegionMap', region, 'EBSAMI'),
-            InstanceType=Ref(babysitter_instance_class),
-            IamInstanceProfile=Ref(babysitter_instance_profile),
-            AssociatePublicIpAddress=not USE_PRIVATE_SUBNETS,
-            BlockDeviceMappings=[
-                BlockDeviceMapping(
-                    DeviceName="/dev/sda1",
-                    Ebs=EBSBlockDevice(
+                InstanceType=Ref(nat_instance_class),
+                KeyName=Ref(keyname_param),
+                SourceDestCheck=False,
+                ImageId=FindInMap('RegionMap', region, int(cfn.Amis.NAT)),
+                NetworkInterfaces=[
+                    ec2.NetworkInterfaceProperty(
+                        Description='Network interface for {0}'.format(nat_name),
+                        GroupSet=[Ref(nat_security_group)],
+                        SubnetId=Ref(public_subnet),
+                        AssociatePublicIpAddress=True,
+                        DeviceIndex=0,
                         DeleteOnTermination=True
                     )
-                )
-            ],
-            KeyName=Ref(keyname_param),
-            SecurityGroups=[Ref(ssh_sg)],
-            DependsOn=[babysitter_instance_profile.title, ssh_sg.title],
-            UserData=Base64(babysitter_user_data)
-        )
-    )
-
-    # Create the babysitter autoscaling group
-    babysitter_asg_name = '.'.join(['babysitter', CLOUDNAME, CLOUDENV])
-    babysitter_asg = t.add_resource(
-        AutoScalingGroup(
-            "BabysitterASG",
-            AvailabilityZones=asg_azs,
-            DesiredCapacity="1",
-            LaunchConfigurationName=Ref(babysitter_launchcfg),
-            MinSize="1",
-            MaxSize="1",
-            NotificationConfiguration=NotificationConfiguration(
-                TopicARN=Ref(alert_topic),
-                NotificationTypes=[
-                    EC2_INSTANCE_TERMINATE
-                ]
-            ),
-            VPCZoneIdentifier=[Ref(sn) for sn in platform_subnets]
-        )
-    )
-
-    # Zookeeper stuff!
-    # BEGIN ZOOKEPER
-    zookeeper_ingress_rules = [
-        SecurityGroupRule(
-            IpProtocol='tcp', CidrIp='{0}.0.0/16'.format(CIDR_PREFIX), FromPort=p, ToPort=p
-        ) for p in [2181, 8080]
-    ]
-
-    zookeeper_sg = t.add_resource(
-        SecurityGroup(
-            "ZookeeperSecurityGroup",
-            GroupDescription="Security Group for ZooKeeper instances",
-            VpcId=Ref(vpc),
-            SecurityGroupIngress=zookeeper_ingress_rules,
-            DependsOn=vpc.title
-        )
-    )
-
-    # Now add in another ingress rule that allows zookeepers to talk to each other
-    # in the same SG
-    for port in [2888, 3888]:
-        t.add_resource(
-            SecurityGroupIngress(
-                "ZookeeperSelfIngress{0}".format(port),
-                IpProtocol='tcp',
-                FromPort=port,
-                ToPort=port,
-                GroupId=Ref(zookeeper_sg),
-                SourceSecurityGroupId=Ref(zookeeper_sg),
-                DependsOn=zookeeper_sg.title
+                ],
+                Tags=Tags(Name=Join('-', [cfn.VPC_NAME, 'nat', full_region_descriptor]))
             )
         )
 
-    # Create the zookeeper s3 bucket
-    zookeeper_bucket_name = Join('.', ['zookeeper', CLOUDNAME, region, CLOUDENV, 'leafme'])
-    zookeeper_bucket = t.add_resource(
-        Bucket(
-            "ZookeeperBucket",
-            BucketName=zookeeper_bucket_name,
-            DeletionPolicy='Retain',
-            Condition="ZookeeperBucketCondition"
+        # Associate the private routing table with the NAT
+        private_routing_table = template.add_resource(
+            ec2.RouteTable(
+                '{0}PrivateRouteTable{1}'.format(cfn.VPC_NAME, zone),
+                VpcId=Ref(vpc),
+                DependsOn=nat_instance.title,
+                Tags=Tags(Name=Join('-', [cfn.VPC_NAME, 'private-route-table', full_region_descriptor]))
+            )
         )
-    )
 
-    # IAM role for zookeeper
-    zookeeper_policy = json.loads(subprocess.check_output([
-        "erber", "-o", "env=" + CLOUDENV,
-                 "-o", "cloud=" + CLOUDNAME,
-                 "-o", "region=" + REGION,
-                 "./lib/templates/zookeeper_policy.json.erb"
-    ]))
-
-    zookeeper_role_name = '.'.join(['zookeeper', CLOUDNAME, CLOUDENV])
-    zookeeper_iam_role = t.add_resource(
-        Role(
-            "ZookeeperIamRole",
-            AssumeRolePolicyDocument=assume_role_policy,
-            Path="/",
-            Policies=[
-                Policy(
-                    PolicyName="ZookeeperDefaultPolicy",
-                    PolicyDocument=default_policy
-                ),
-                Policy(
-                    PolicyName="ZookeeperPolicy",
-                    PolicyDocument=zookeeper_policy
-                )
-            ],
-            DependsOn=vpc.title
+        template.add_resource(
+            ec2.Route(
+                'PrivateRoute{0}'.format(zone.upper()),
+                RouteTableId=Ref(private_routing_table),
+                DestinationCidrBlock=cfn.DEFAULT_ROUTE,
+                InstanceId=Ref(nat_instance),
+                DependsOn=private_routing_table.title
+            )
         )
-    )
-
-    zookeeper_instance_profile = t.add_resource(
-        InstanceProfile(
-            "zookeeperInstanceProfile",
-            Path="/",
-            Roles=[Ref(zookeeper_iam_role)],
-            DependsOn=zookeeper_iam_role.title
-        )
-    )
-
-    zookeepeer_user_data = subprocess.check_output([
-        "erber", "-o", "env=" + CLOUDENV,
-                 "-o", "cloud=" + CLOUDNAME,
-                 "-o", "deploy=zookeeper",
-                 "./lib/templates/default-init.bash.erb"
-    ])
-
-    # Launch Configuration for zookeepers
-    zookeeper_launchcfg = t.add_resource(
-        LaunchConfiguration(
-            "ZookeeperLaunchConfiguration",
-            ImageId=FindInMap('RegionMap', region, 'INSTANCESTOREAMI'),
-            InstanceType=Ref(zookeeper_instance_class),
-            IamInstanceProfile=Ref(zookeeper_instance_profile),
-            AssociatePublicIpAddress=not USE_PRIVATE_SUBNETS,
-            KeyName=Ref(keyname_param),
-            SecurityGroups=[Ref(zookeeper_sg), Ref(ssh_sg)],
-            DependsOn=[zookeeper_instance_profile.title, zookeeper_sg.title, zookeeper_sg.title, ssh_sg.title],
-            UserData=Base64(zookeepeer_user_data)
-        )
-    )
-
-    # Create the zookeeper autoscaling group
-    zookeeper_asg_name = '.'.join(['zookeeper', CLOUDNAME, CLOUDENV])
-    zookeeper_asg = t.add_resource(
-        AutoScalingGroup(
-            "ZookeeperASG",
-            AvailabilityZones=asg_azs,
-            DesiredCapacity="3",
-            LaunchConfigurationName=Ref(zookeeper_launchcfg),
-            MinSize="3",
-            MaxSize="3",
-            VPCZoneIdentifier=[Ref(sn) for sn in master_subnets]
-        )
-    )
-    # END ZOOKEEPER
 
 
-
-
-
-
-    # VPN stuff!
-    # BEGIN VPN
-    vpn_ingress_rules = [
-        SecurityGroupRule(
-            IpProtocol=p[0], CidrIp='0.0.0.0/0', FromPort=p[1], ToPort=p[1]
-        ) for p in [('tcp', 22), ('udp', 1194)]
-    ]
-
-    vpn_sg = t.add_resource(
-        SecurityGroup(
-            "VPNSecurityGroup",
-            GroupDescription="Security Group for VPN ingress.",
+        worker_subnet = ec2.Subnet(
+            '{0}{1}WorkerSubnet{2}'.format(cfn.VPC_NAME, subnet_identifier, zone.upper()),
             VpcId=Ref(vpc),
-            SecurityGroupIngress=vpn_ingress_rules,
-            DependsOn=vpc.title
+            CidrBlock='{0}.{1}.0/22'.format(cfn.CIDR_PREFIX, 100 + (idx * 4)),
+            AvailabilityZone=full_region_descriptor,
+            DependsOn=vpc.title,
+            Tags=Tags(Name=Join('-', [cfn.VPC_NAME, '{0}-worker-subnet'.format(subnet_identifier), full_region_descriptor]))
         )
-    )
+        worker_subnets.append(worker_subnet)
 
-    # IAM role for vpn
-    vpn_policy = json.loads(subprocess.check_output([
-        "erber", "-o", "env=" + CLOUDENV,
-                 "-o", "cloud=" + CLOUDNAME,
-                 "-o", "region=" + REGION,
-                 "./lib/templates/vpn_policy.json.erb"
-    ]))
-
-    vpn_role_name = '.'.join(['vpn', CLOUDNAME, CLOUDENV])
-    vpn_iam_role = t.add_resource(
-        Role(
-            "VPNIamRole",
-            AssumeRolePolicyDocument=assume_role_policy,
-            Path="/",
-            Policies=[
-                Policy(
-                    PolicyName="VPNDefaultPolicy",
-                    PolicyDocument=default_policy
-                ),
-                Policy(
-                    PolicyName="VPNPolicy",
-                    PolicyDocument=vpn_policy
-                )
-            ],
-            DependsOn=vpc.title
+        platform_subnet = ec2.Subnet(
+            '{0}{1}PlatformSubnet{2}'.format(cfn.VPC_NAME, subnet_identifier, zone.upper()),
+            VpcId=Ref(vpc),
+            CidrBlock='{0}.{1}.0/24'.format(cfn.CIDR_PREFIX, 10 + idx),
+            AvailabilityZone=full_region_descriptor,
+            DependsOn=vpc.title,
+            Tags=Tags(Name=Join('-', [cfn.VPC_NAME, '{0}-platform-subnet'.format(subnet_identifier), full_region_descriptor]))
         )
-    )
+        platform_subnets.append(platform_subnet)
 
-    vpn_instance_profile = t.add_resource(
-        InstanceProfile(
-            "vpnInstanceProfile",
-            Path="/",
-            Roles=[Ref(vpn_iam_role)],
-            DependsOn=vpn_iam_role.title
+        master_subnet = ec2.Subnet('{0}{1}MasterSubnet{2}'.format(cfn.VPC_NAME, subnet_identifier, zone.upper()),
+            VpcId=Ref(vpc),
+            CidrBlock='{0}.{1}.0/24'.format(cfn.CIDR_PREFIX, 90 + idx),
+            AvailabilityZone=full_region_descriptor,
+            DependsOn=vpc.title,
+            Tags=Tags(Name=Join('-', [cfn.VPC_NAME, '{0}-master-subnet'.format(subnet_identifier), full_region_descriptor]))
         )
-    )
+        master_subnets.append(master_subnet)
 
-    vpn_user_data = subprocess.check_output([
-        "erber", "-o", "env=" + CLOUDENV,
-                 "-o", "cloud=" + CLOUDNAME,
-                 "-o", "deploy=vpn",
-                 "./lib/templates/default-init.bash.erb"
-    ])
-
-    # Launch Configuration for vpns
-    vpn_launchcfg = t.add_resource(
-        LaunchConfiguration(
-            "VPNLaunchConfiguration",
-            ImageId=FindInMap('RegionMap', region, 'INSTANCESTOREAMI'),
-            InstanceType=Ref(vpn_instance_class),
-            IamInstanceProfile=Ref(vpn_instance_profile),
-            KeyName=Ref(keyname_param),
-            SecurityGroups=[Ref(vpn_sg), Ref(ssh_sg)],
-            DependsOn=[vpn_instance_profile.title, vpn_sg.title, vpn_sg.title, ssh_sg.title],
-            AssociatePublicIpAddress=True,
-            UserData=Base64(vpn_user_data)
+        vpn_subnet = ec2.Subnet(
+            '{0}VpnSubnet{1}'.format(cfn.VPC_NAME, zone),
+            VpcId=Ref(vpc),
+            CidrBlock='{0}.{1}.0/24'.format(cfn.CIDR_PREFIX, 60 + idx),
+            AvailabilityZone=full_region_descriptor,
+            DependsOn=vpc.title,
+            Tags=Tags(Name=Join('.', [full_region_descriptor, cfn.CLOUDNAME, cfn.CLOUDENV, "vpn-client"]))
         )
-    )
+        vpn_subnets.append(vpn_subnet)
 
-    # Create the babysitter autoscaling group
-    vpn_asg_name = '.'.join(['vpn', CLOUDNAME, CLOUDENV])
-    vpn_asg = t.add_resource(
-        AutoScalingGroup(
-            "VPNASG",
-            AvailabilityZones=asg_azs,
-            DesiredCapacity="1",
-            LaunchConfigurationName=Ref(vpn_launchcfg),
-            MinSize="1",
-            MaxSize="1",
-            VPCZoneIdentifier=[Ref(sn) for sn in vpn_subnets],
-            DependsOn=["{0}VpnSubnet{1}".format(VPC_NAME, zone) for zone in AVAILABILITY_ZONES]
-        )
-    )
-    # END VPN
-
-    if not outfile:
-        print(t.to_json())
+    # Associate a routing table with each of the master/platform/worker subnets
+    if cfn.USE_PRIVATE_SUBNETS:
+        routing_table = private_routing_table
     else:
-        with open(outfile, 'w') as ofile:
-            print >> ofile, t.to_json()
+        routing_table = public_routing_table
 
-if __name__ == '__main__':
-    arg_parser = _create_parser()
-    args = arg_parser.parse_args()
+    for sn in chain(worker_subnets, master_subnets, platform_subnets):
+        template.add_resource(sn)
+        template.add_resource(
+            ec2.SubnetRouteTableAssociation(
+                '{0}{1}RouteTableAssociation'.format(sn.title, subnet_identifier),
+                SubnetId=Ref(sn),
+                RouteTableId=Ref(routing_table),
+                DependsOn=sn.title
+            )
+        )
 
-    print('Creating cloudformation template using config file: {0} '.format(args.config))
-    create_cfn_template(args.config, args.outfile)
+    # associate the public routing table with the VPN subnets
+    for sn in vpn_subnets:
+        template.add_resource(sn),
+        template.add_resource(
+            ec2.SubnetRouteTableAssociation(
+                '{0}RouteTableAssociation'.format(sn.title),
+                SubnetId=Ref(sn),
+                RouteTableId=Ref(public_routing_table),
+                DependsOn=sn.title
+            )
+        )
+
+    # affect the global state
+    cfn.add_vpc_subnets(vpc, cfn.SubnetTypes.PLATFORM, platform_subnets)
+    cfn.add_vpc_subnets(vpc, cfn.SubnetTypes.PUBLIC, public_subnets)
+    cfn.add_vpc_subnets(vpc, cfn.SubnetTypes.MASTER, master_subnets)
+    cfn.add_vpc_subnets(vpc, cfn.SubnetTypes.WORKER, worker_subnets)
+    cfn.add_vpc_subnets(vpc, cfn.SubnetTypes.VPN, vpn_subnets)

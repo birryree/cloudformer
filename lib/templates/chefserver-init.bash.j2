@@ -1,0 +1,26 @@
+#! /usr/bin/env bash
+set -e
+
+export ENV='{{ env }}'
+export CLOUDNAME='{{ cloud }}'
+export DEPLOY='{{ deploy }}'
+
+AVAILABILITY_ZONE=$(curl http://169.254.169.254/latest/meta-data/placement/availability-zone)
+INSTANCE_ID=$(curl http://169.254.169.254/latest/meta-data/instance-id)
+export REGION="${AVAILABILITY_ZONE:0:${{ '{' }}#AVAILABILITY_ZONE} - 1}"
+
+export CHEF_ENVIRONMENT='${ENV}.${CLOUDNAME}'
+export CHEF_VERSION='12.0'
+
+
+
+apt-get update
+apt-get install -y chef-zero
+
+aws s3 --region $REGION cp s3://cloudstrap.$CLOUDNAME.$REGION.$ENV.leafme/chef-server-bootstrap.tar.gz /tmp/chef-server-bootstrap.tar.gz
+
+pushd /tmp 2&>1
+
+tar xzvf chef-server-bootstrap.tar.gz
+
+popd 2&>1

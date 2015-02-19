@@ -1,0 +1,9 @@
+name        "{{ cloud }}_{{ env }}"
+description "the '{{ cloud }}' environment for '{{ env }}'."
+
+override_attributes(
+  :leaf => {
+    :env => "{{ env }}",
+    :cloud => "{{ cloud }}"
+  }
+)
