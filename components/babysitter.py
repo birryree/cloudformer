@@ -29,65 +29,6 @@ def emit_configuration():
         )
     )
 
-    babysitter_email_param = template.add_parameter(
-        Parameter(
-            'BabysitterAlarmEmail',
-            Default='wlee@leaf.me',
-            Description='Email address to notify if tehre are issues in the babysitter queue',
-            Type='String'
-        )
-    )
-
-    # Build an SQS queue for the babysitter
-    queue_name = '_'.join(['chef-deregistration', CLOUDNAME, CLOUDENV])
-    queue = template.add_resource(
-        sqs.Queue(
-            cfn.sanitize_id(queue_name),
-            VisibilityTimeout=60,
-            MessageRetentionPeriod=1209600,
-            MaximumMessageSize=16384,
-            QueueName=queue_name
-        )
-    )
-
-    alert_topic = template.add_resource(
-        sns.Topic(
-            "BabysitterAlarmTopic",
-            DisplayName='Babysitter Alarm',
-            TopicName=queue_name,
-            Subscription=[
-                sns.Subscription(
-                    Endpoint=Ref(babysitter_email_param),
-                    Protocol='email'
-                ),
-            ],
-            DependsOn=queue.title
-        )
-    )
-
-    queue_depth_alarm = template.add_resource(
-        cloudwatch.Alarm(
-            "BabysitterQueueDepthAlarm",
-            AlarmDescription='Alarm if the queue depth grows beyond 200 messages',
-            Namespace='AWS/SQS',
-            MetricName='ApproximateNumberOfMessagesVisible',
-            Dimensions=[
-                cloudwatch.MetricDimension(
-                    Name='QueueName',
-                    Value=GetAtt(queue, "QueueName")
-                )
-            ],
-            Statistic='Sum',
-            Period='300',
-            EvaluationPeriods='1',
-            Threshold='200',
-            ComparisonOperator='GreaterThanThreshold',
-            AlarmActions=[Ref(alert_topic), ],
-            InsufficientDataActions=[Ref(alert_topic), ],
-            DependsOn=alert_topic.title
-        ),
-    )
-
     # babysitter IAM role
     babysitter_role_name = '.'.join(['babysitter', CLOUDNAME, CLOUDENV])
     babysitter_iam_role = template.add_resource(
@@ -175,7 +116,7 @@ def emit_configuration():
             MinSize="1",
             MaxSize="1",
             NotificationConfiguration=autoscaling.NotificationConfiguration(
-                TopicARN=Ref(alert_topic),
+                TopicARN=Ref(cfn.alert_topic),
                 NotificationTypes=[
                     EC2_INSTANCE_TERMINATE
                 ]

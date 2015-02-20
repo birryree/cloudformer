@@ -117,6 +117,9 @@ vpcs = list()
 # entire state of multiple clouds bound by VPC).
 vpc_subnets = defaultdict(lambda: defaultdict(list))
 
+# The SNS topic that will be used to alert of instance termination
+instance_terminate_topic = None
+
 def add_vpc_subnets(vpc, identifier, subnets):
     """Associate subnets with a VPC based on the subnet type"""
     vpc_subnets[vpc][identifier] = subnets

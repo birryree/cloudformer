@@ -162,7 +162,7 @@ def emit_configuration():
             MinSize="3",
             MaxSize="3",
             NotificationConfiguration=autoscaling.NotificationConfiguration(
-                TopicARN=Ref(alert_topic),
+                TopicARN=Ref(cfn.alert_topic),
                 NotificationTypes=[
                     EC2_INSTANCE_TERMINATE
                 ]

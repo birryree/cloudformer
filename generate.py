@@ -14,12 +14,12 @@ def _create_parser():
     parser.add_argument('-o', '--outfile', type=str, help='The file to write the Cloudformation template to')
     return parser
 
-def _emit_component_configurations():
+def _emit_component_configurations(package):
     # Get all submodules in components
-    for loader, module_name, ispkg in pkgutil.iter_modules(['components']):
+    for loader, module_name, ispkg in pkgutil.iter_modules([package]):
         if module_name not in sys.modules:
             print module_name
-            mod = __import__("components.{0}".format(module_name))
+            mod = __import__("{0}.{1}".format(package, module_name))
             # Determine if EMIT is set to a non-True value (if module has one).
             cls = getattr(mod, module_name)
 
@@ -41,7 +41,8 @@ def generate_cloudformation_template(outfile):
     # network has to be emitted first since it sets a lot of state that everything else
     # depends on
     network.emit_configuration()
-    _emit_component_configurations()
+    _emit_component_configurations('core')
+    _emit_component_configurations('components')
 
     with open(outfile, 'w') as ofile:
         print >> ofile, config.template.to_json()
