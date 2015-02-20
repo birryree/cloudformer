@@ -159,6 +159,12 @@ def emit_configuration():
             LaunchConfigurationName=Ref(zookeeper_launchcfg),
             MinSize="3",
             MaxSize="3",
+            NotificationConfiguration=autoscaling.NotificationConfiguration(
+                TopicARN=Ref(alert_topic),
+                NotificationTypes=[
+                    EC2_INSTANCE_TERMINATE
+                ]
+            ),
             VPCZoneIdentifier=[Ref(sn) for sn in cfn.get_vpc_subnets(vpc, cfn.SubnetTypes.MASTER)]
         )
     )

@@ -112,6 +112,12 @@ def emit_configuration():
             LaunchConfigurationName=Ref(vpn_launchcfg),
             MinSize="1",
             MaxSize="1",
+            NotificationConfiguration=autoscaling.NotificationConfiguration(
+                TopicARN=Ref(alert_topic),
+                NotificationTypes=[
+                    EC2_INSTANCE_TERMINATE
+                ]
+            ),
             VPCZoneIdentifier=[Ref(sn) for sn in cfn.get_vpc_subnets(vpc, cfn.SubnetTypes.VPN)],
             DependsOn=[sn.title for sn in cfn.get_vpc_subnets(vpc, cfn.SubnetTypes.VPN)]
         )
