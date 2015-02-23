@@ -17,7 +17,7 @@ import config as cfn
 from config import template, CIDR_PREFIX, CLOUDNAME, CLOUDENV, ASSUME_ROLE_POLICY
 from config import USE_PRIVATE_SUBNETS, DEFAULT_ROUTE
 
-EMIT=False
+EMIT = False
 
 def emit_configuration():
     vpc = cfn.vpcs[0]

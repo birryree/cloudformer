@@ -18,12 +18,9 @@ def _emit_component_configurations(package):
     # Get all submodules in components
     for loader, module_name, ispkg in pkgutil.iter_modules([package]):
         if module_name not in sys.modules:
-            print module_name
             mod = __import__("{0}.{1}".format(package, module_name))
             # Determine if EMIT is set to a non-True value (if module has one).
             cls = getattr(mod, module_name)
-
-            generate_for_module = True
 
             # generate configuration for module if it doesn't have the EMIT
             # property set or if it's set to something 'true'
@@ -31,7 +28,8 @@ def _emit_component_configurations(package):
                 print("Generating configuration for {0} module".format(module_name))
                 try:
                     cls.emit_configuration()
-                except AttributeError:
+                except AttributeError, ae:
+                    print ae
                     print("Could not generate configuration for {0} module as it's missing emit_configuration".format(module_name))
             else:
                 print("Skipping configuration for {0} module because EMIT was set to False".format(module_name))
