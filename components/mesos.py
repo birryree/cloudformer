@@ -64,6 +64,10 @@ def emit_configuration():
         {"env": CLOUDENV, "cloud": CLOUDNAME, "region": "us-east-1"}
     ))
 
+    mesos_policy = json.loads(cfn.load_template("mesos_policy.json.j2",
+        {"env": CLOUDENV, "cloud": CLOUDNAME, "region": "us-east-1"}
+    ))
+
     # IAM role here
     iam_role = template.add_resource(
         Role(
@@ -74,6 +78,10 @@ def emit_configuration():
                 Policy(
                     PolicyName='MesosDefaultPolicy',
                     PolicyDocument=default_policy
+                ),
+                Policy(
+                    PolicyName='MesosIamPolicy',
+                    PolicyDocument=mesos_policy
                 )
             ],
             DependsOn=vpc.title
