@@ -1,20 +1,26 @@
 #/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import json
-import os
-import subprocess
+# Create Mesos cluster
 
-import yaml
-from troposphere import Parameter
+import json
+
+from troposphere import Ref, Parameter, FindInMap, Base64, Equals, Join
+from troposphere.s3 import Bucket
+from troposphere.iam import Role, Group, PolicyType, Policy, InstanceProfile
+from troposphere.ec2 import SecurityGroupRule, SecurityGroup, SecurityGroupIngress
+from troposphere.autoscaling import LaunchConfiguration, AutoScalingGroup, NotificationConfiguration
+from troposphere.autoscaling import EC2_INSTANCE_TERMINATE
 
 import config as cfn
+from config import template, CIDR_PREFIX, CLOUDNAME, CLOUDENV, ASSUME_ROLE_POLICY
+from config import DEFAULT_ROUTE
 
-EMIT = False
+EMIT = True
 
 def emit_configuration():
     vpc = cfn.vpcs[0]
-    template = cfn.template
+    region = Ref("AWS::Region")
 
     mesos_instance_class = template.add_parameter(
         Parameter(
@@ -25,11 +31,18 @@ def emit_configuration():
         )
     )
 
+    ingress_rules = [
+        SecurityGroupRule(
+            IpProtocol=p[0], CidrIp=DEFAULT_ROUTE, FromPort=p[1], ToPort=p[1]
+        ) for p in [('tcp', 22)]
+    ]
+
     mesos_security_group = template.add_resource(
         SecurityGroup(
             "MesosSecurityGroup",
             GroupDescription="Security Group for Mesos instances",
             VpcId=Ref(vpc),
+            SecurityGroupIngress=ingress_rules,
             DependsOn=vpc.title
         )
     )
@@ -47,12 +60,113 @@ def emit_configuration():
         )
     )
 
+    default_policy = json.loads(cfn.load_template("default_policy.json.j2",
+        {"env": CLOUDENV, "cloud": CLOUDNAME, "region": "us-east-1"}
+    ))
+
     # IAM role here
+    iam_role = template.add_resource(
+        Role(
+            "MesosIamRole",
+            AssumeRolePolicyDocument=ASSUME_ROLE_POLICY,
+            Path="/",
+            Policies=[
+                Policy(
+                    PolicyName='MesosDefaultPolicy',
+                    PolicyDocument=default_policy
+                )
+            ],
+            DependsOn=vpc.title
+        )
+    )
 
     # Instance profile here
+    instance_profile = template.add_resource(
+        InstanceProfile(
+            "mesosInstanceProfile",
+            Path="/",
+            Roles=[Ref(iam_role)],
+            DependsOn=iam_role.title
+        )
+    )
 
     # UserData here
+    master_user_data = cfn.load_template("default-init.bash.j2",
+        {"env": CLOUDENV, "cloud": CLOUDNAME, "deploy": "mesos_master"}
+    )
 
-    # LaunchConfiguration
+    # LaunchConfiguration for master mesos
+    master_launch_configuration = template.add_resource(
+        LaunchConfiguration(
+            "MesosMasterLaunchConfiguration",
+            ImageId=FindInMap('RegionMap', region, int(cfn.Amis.INSTANCE)),
+            InstanceType=Ref(mesos_instance_class),
+            IamInstanceProfile=Ref(instance_profile),
+            KeyName=Ref(cfn.keyname),
+            SecurityGroups=[Ref(mesos_security_group)],
+            DependsOn=[instance_profile.title, mesos_security_group.title],
+            AssociatePublicIpAddress=False,
+            UserData=Base64(master_user_data)
+        )
+    )
 
-    # Autoscaling Group
+    # Autoscaling Group for master Mesos
+    master_asg_name = '.'.join(['mesos-master', CLOUDNAME, CLOUDENV])
+    master_asg = template.add_resource(
+        AutoScalingGroup(
+            "MesosMasterASG",
+            AvailabilityZones=cfn.get_asg_azs(),
+            DesiredCapacity="3",
+            LaunchConfigurationName=Ref(master_launch_configuration),
+            MinSize="3",
+            MaxSize="3",
+            NotificationConfiguration=NotificationConfiguration(
+                TopicARN=Ref(cfn.alert_topic),
+                NotificationTypes=[
+                    EC2_INSTANCE_TERMINATE
+                ]
+            ),
+            VPCZoneIdentifier=[Ref(sn) for sn in cfn.get_vpc_subnets(vpc, cfn.SubnetTypes.MASTER)],
+            DependsOn=[sn.title for sn in cfn.get_vpc_subnets(vpc, cfn.SubnetTypes.MASTER)]
+        )
+    )
+
+    # Worker Mesos
+    worker_user_data = cfn.load_template("default-init.bash.j2",
+        {"env": CLOUDENV, "cloud": CLOUDNAME, "deploy": "mesos_slave"}
+    )
+
+    worker_launch_configuration = template.add_resource(
+        LaunchConfiguration(
+            "MesosWorkerLaunchConfiguration",
+            ImageId=FindInMap('RegionMap', region, int(cfn.Amis.INSTANCE)),
+            InstanceType=Ref(mesos_instance_class),
+            IamInstanceProfile=Ref(instance_profile),
+            KeyName=Ref(cfn.keyname),
+            SecurityGroups=[Ref(mesos_security_group)],
+            DependsOn=[instance_profile.title, mesos_security_group.title],
+            AssociatePublicIpAddress=False,
+            UserData=Base64(worker_user_data)
+        )
+    )
+
+    worker_asg_name = '.'.join(['mesos-worker', CLOUDNAME, CLOUDENV]),
+    worker_asg = template.add_resource(
+        AutoScalingGroup(
+            "MesosWorkerASG",
+            AvailabilityZones=cfn.get_asg_azs(),
+            DesiredCapacity="3",
+            LaunchConfigurationName=Ref(worker_launch_configuration),
+            MinSize="3",
+            MaxSize="12",
+            NotificationConfiguration=NotificationConfiguration(
+                TopicARN=Ref(cfn.alert_topic),
+                NotificationTypes=[
+                    EC2_INSTANCE_TERMINATE
+                ]
+            ),
+            VPCZoneIdentifier=[Ref(sn) for sn in cfn.get_vpc_subnets(vpc, cfn.SubnetTypes.WORKER)],
+            DependsOn=[sn.title for sn in cfn.get_vpc_subnets(vpc, cfn.SubnetTypes.WORKER)]
+        )
+    )
+

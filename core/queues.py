@@ -10,7 +10,7 @@ import troposphere.autoscaling as autoscaling
 from troposphere.autoscaling import EC2_INSTANCE_TERMINATE
 import troposphere.cloudwatch as cloudwatch
 import troposphere.ec2 as ec2
-import troposphere.sns as sns
+from troposphere.sns import Topic, Subscription
 import troposphere.iam as iam
 from troposphere.sqs import QueuePolicy, Queue
 
@@ -32,12 +32,12 @@ def emit_configuration():
     )
 
     alert_topic = template.add_resource(
-        sns.Topic(
+        Topic(
             "BabysitterAlarmTopic",
             DisplayName='Babysitter Alarm',
             TopicName=queue_name,
             Subscription=[
-                sns.Subscription(
+                Subscription(
                     Endpoint=GetAtt(queue, "Arn"),
                     Protocol='sqs'
                 ),
@@ -72,18 +72,18 @@ def emit_configuration():
     queue_policy = {
         "Version": "2012-10-17",
         "Id": "BabysitterSNSPublicationPolicy",
-        "Statement": {
+        "Statement": [{
             "Sid":"AllowSNSPublishing",
             "Effect": "Allow",
             "Principal": {
-                "AWS": Ref("AWS::AccountId")
+                "AWS": "*"
             },
-            "Action": "sqs:SendMessage",
+            "Action": ["sqs:SendMessage"],
             "Resource": GetAtt(queue, "Arn"),
             "Condition": {
                 "ArnEquals": {"aws:SourceArn": Ref(alert_topic)}
             }
-        }
+        }]
     }
 
     # Publish all events from SNS to the Queue
@@ -92,7 +92,7 @@ def emit_configuration():
             "BabysitterPublishSNStoSQSPolicy",
             Queues=[Ref(queue)],
             PolicyDocument=queue_policy,
-            DependsOn=queue.title
+            DependsOn=[queue.title, alert_topic.title]
         )
     )
 
