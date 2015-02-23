@@ -11,11 +11,13 @@ import troposphere.autoscaling as autoscaling
 from troposphere.autoscaling import EC2_INSTANCE_TERMINATE
 from troposphere.iam import Role, Group, PolicyType, Policy, InstanceProfile
 from troposphere.ec2 import SecurityGroupRule, SecurityGroup, SecurityGroupIngress
-from troposphere.autoscaling import LaunchConfiguration, AutoScalingGroup
+from troposphere.autoscaling import LaunchConfiguration, AutoScalingGroup, NotificationConfiguration
 
 import config as cfn
 from config import template, CIDR_PREFIX, CLOUDNAME, CLOUDENV, ASSUME_ROLE_POLICY
 from config import USE_PRIVATE_SUBNETS, DEFAULT_ROUTE
+
+EMIT = True
 
 
 def emit_configuration():
@@ -114,7 +116,7 @@ def emit_configuration():
             LaunchConfigurationName=Ref(vpn_launchcfg),
             MinSize="1",
             MaxSize="1",
-            NotificationConfiguration=autoscaling.NotificationConfiguration(
+            NotificationConfiguration=NotificationConfiguration(
                 TopicARN=Ref(cfn.alert_topic),
                 NotificationTypes=[
                     EC2_INSTANCE_TERMINATE
