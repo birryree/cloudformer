@@ -33,7 +33,7 @@ def emit_configuration():
 
     vpn_ingress_rules = [
         SecurityGroupRule(
-            IpProtocol=p[0], CidrIp='0.0.0.0/0', FromPort=p[1], ToPort=p[1]
+            IpProtocol=p[0], CidrIp=DEFAULT_ROUTE, FromPort=p[1], ToPort=p[1]
         ) for p in [('tcp', 22), ('udp', 1194)]
     ]
 
