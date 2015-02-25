@@ -10,7 +10,7 @@ from troposphere.s3 import Bucket
 from troposphere.iam import Role, Group, PolicyType, Policy, InstanceProfile
 from troposphere.ec2 import SecurityGroupRule, SecurityGroup, SecurityGroupIngress
 from troposphere.autoscaling import LaunchConfiguration, AutoScalingGroup, NotificationConfiguration
-from troposphere.autoscaling import EC2_INSTANCE_TERMINATE
+from troposphere.autoscaling import EC2_INSTANCE_TERMINATE, EC2_INSTANCE_LAUNCH, EC2_INSTANCE_LAUNCH_ERROR, EC2_INSTANCE_TERMINATE_ERROR
 
 import config as cfn
 from config import template, CIDR_PREFIX, CLOUDNAME, CLOUDENV, ASSUME_ROLE_POLICY
@@ -131,7 +131,7 @@ def emit_configuration():
             NotificationConfiguration=NotificationConfiguration(
                 TopicARN=Ref(cfn.alert_topic),
                 NotificationTypes=[
-                    EC2_INSTANCE_TERMINATE
+                    EC2_INSTANCE_TERMINATE, EC2_INSTANCE_LAUNCH, EC2_INSTANCE_LAUNCH_ERROR, EC2_INSTANCE_TERMINATE_ERROR
                 ]
             ),
             VPCZoneIdentifier=[Ref(sn) for sn in cfn.get_vpc_subnets(vpc, cfn.SubnetTypes.MASTER)],
@@ -170,7 +170,7 @@ def emit_configuration():
             NotificationConfiguration=NotificationConfiguration(
                 TopicARN=Ref(cfn.alert_topic),
                 NotificationTypes=[
-                    EC2_INSTANCE_TERMINATE
+                    EC2_INSTANCE_TERMINATE, EC2_INSTANCE_LAUNCH, EC2_INSTANCE_LAUNCH_ERROR, EC2_INSTANCE_TERMINATE_ERROR
                 ]
             ),
             VPCZoneIdentifier=[Ref(sn) for sn in cfn.get_vpc_subnets(vpc, cfn.SubnetTypes.WORKER)],

@@ -8,7 +8,8 @@ import json
 from troposphere import Ref, Parameter, FindInMap, Base64, Equals, Join
 from troposphere.s3 import Bucket
 import troposphere.autoscaling as autoscaling
-from troposphere.autoscaling import EC2_INSTANCE_TERMINATE
+
+from troposphere.autoscaling import EC2_INSTANCE_TERMINATE, EC2_INSTANCE_LAUNCH, EC2_INSTANCE_LAUNCH_ERROR, EC2_INSTANCE_TERMINATE_ERROR
 from troposphere.iam import Role, Group, PolicyType, Policy, InstanceProfile
 from troposphere.ec2 import SecurityGroupRule, SecurityGroup, SecurityGroupIngress
 from troposphere.autoscaling import LaunchConfiguration, AutoScalingGroup, NotificationConfiguration
@@ -119,7 +120,7 @@ def emit_configuration():
             NotificationConfiguration=NotificationConfiguration(
                 TopicARN=Ref(cfn.alert_topic),
                 NotificationTypes=[
-                    EC2_INSTANCE_TERMINATE
+                    EC2_INSTANCE_TERMINATE, EC2_INSTANCE_LAUNCH, EC2_INSTANCE_LAUNCH_ERROR, EC2_INSTANCE_TERMINATE_ERROR
                 ]
             ),
             VPCZoneIdentifier=[Ref(sn) for sn in cfn.get_vpc_subnets(vpc, cfn.SubnetTypes.VPN)],
