@@ -6,12 +6,8 @@
 import json
 
 from troposphere import Parameter, Ref, FindInMap, Base64, GetAtt, Tags
-import troposphere.autoscaling as autoscaling
-from troposphere.autoscaling import EC2_INSTANCE_TERMINATE
-import troposphere.cloudwatch as cloudwatch
-import troposphere.ec2 as ec2
+from troposphere.cloudwatch import Alarm, MetricDimension
 from troposphere.sns import Topic, Subscription
-import troposphere.iam as iam
 from troposphere.sqs import QueuePolicy, Queue
 
 import config as cfn
@@ -47,13 +43,13 @@ def emit_configuration():
     )
 
     queue_depth_alarm = template.add_resource(
-        cloudwatch.Alarm(
+        Alarm(
             "BabysitterQueueDepthAlarm",
             AlarmDescription='Alarm if the queue depth grows beyond 200 messages',
             Namespace='AWS/SQS',
             MetricName='ApproximateNumberOfMessagesVisible',
             Dimensions=[
-                cloudwatch.MetricDimension(
+                MetricDimension(
                     Name='QueueName',
                     Value=GetAtt(queue, "QueueName")
                 )

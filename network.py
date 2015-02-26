@@ -85,7 +85,7 @@ def emit_configuration():
     nat_ingress_rules = [
         ec2.SecurityGroupRule(
             IpProtocol='tcp', CidrIp=cfn.DEFAULT_ROUTE, FromPort=p, ToPort=p
-        ) for p in [22, 80, 443]
+        ) for p in [22, 80, 443, 11371]
     ]
 
     nat_egress_rules = [

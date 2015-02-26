@@ -7,7 +7,7 @@ import json
 
 from troposphere import Parameter, Ref, FindInMap, Base64, GetAtt, Tags
 import troposphere.autoscaling as autoscaling
-from troposphere.autoscaling import EC2_INSTANCE_TERMINATE
+from troposphere.autoscaling import EC2_INSTANCE_TERMINATE, EC2_INSTANCE_LAUNCH, EC2_INSTANCE_LAUNCH_ERROR, EC2_INSTANCE_TERMINATE_ERROR
 import troposphere.cloudwatch as cloudwatch
 import troposphere.ec2 as ec2
 import troposphere.sns as sns
@@ -120,7 +120,10 @@ def emit_configuration():
             NotificationConfiguration=autoscaling.NotificationConfiguration(
                 TopicARN=Ref(cfn.alert_topic),
                 NotificationTypes=[
-                    EC2_INSTANCE_TERMINATE
+                    EC2_INSTANCE_TERMINATE,
+                    EC2_INSTANCE_TERMINATE_ERROR,
+                    EC2_INSTANCE_LAUNCH,
+                    EC2_INSTANCE_LAUNCH_ERROR
                 ]
             ),
             VPCZoneIdentifier=[Ref(sn) for sn in cfn.get_vpc_subnets(cfn.vpcs[0], cfn.SubnetTypes.PLATFORM)]

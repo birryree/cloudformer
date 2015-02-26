@@ -45,10 +45,13 @@ echo "log_level                 :info"                                          
 # TODO: logrotate
 echo "log_location              '/var/log/chef.log'"                            >> /etc/chef/client.rb
 echo "environment               '${CLOUDNAME}_${ENV}'"                          >> /etc/chef/client.rb
-echo "node_name                 '$INSTANCE_ID'"                                 >> /etc/chef/client.rb
+echo "node_name                 '$NODE_NAME'"                                   >> /etc/chef/client.rb
 
 echo " - running chef-client::delete_validation"
 chef-client -r chef-client::delete_validation # registers the node and clears validation pem
+
+echo " - tagging node '$NODE_NAME' as '$INSTANCE_ID' and '$DEPLOY' in Chef..."
+knife tag create -c /etc/chef/client.rb $NODE_NAME $INSTANCE_ID $DEPLOY
 
 echo " - running first 'leaf-deploy-$DEPLOY'"
 chef-client -r leaf-deploy-$DEPLOY            # shootans the laser
