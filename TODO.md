@@ -7,6 +7,9 @@ with CLOUDSTRAP_BUCKET = cloudstrap.CLOUDNAME.REGION.ENV.leafme
 - Install `knife`, `berkshelf`, and `erber` from Rubygems.
 - Have a Chef server. Hosted or not.
   - Create a Chef environment, `ENV.CLOUDNAME`. You can get an `environment.rb` like this:
+  - Inside this Chef server, create the client (not user!) `dereg`. Save `dereg.pem` somewhere, we'll need it later.
+  - Create the validation client `validator`. Save `validator.pem` somewhere.
+  - Upload, using `knife upload`, the `acls` directory within `lib/chef`. You may need to move this temporarily to wherever your `knife.rb` and Chef PEM are, because reasons.
 ```bash
 erber -o env=infra -o cloud=test-cloud lib/templates/environment.rb.erb > environment.rb
 ```
@@ -19,7 +22,8 @@ erber -o env=infra -o cloud=test-cloud -o region=us-east-1 lib/templates/default
 - Create S3 bucket `CLOUDSTRAP_BUCKET`.
   - Upload `s3://CLOUDSTRAP_BUCKET/chef-server-bootstrap.tar.gz`, containing the `chef-solo` cookbook to install `chef-server`. 
   - Upload `s3://CLOUDSTRAP_BUCKET/chef-github.pem`, containing a private key okayed for use with a readonly Chef account.
-  - Upload `s3://CLOUDSTRAP_BUCKET/validator.pem` to bucket. (If hosted-chef, will be named `leaf-ENV-validator.pem`, change it.)
+  - Upload `s3://CLOUDSTRAP_BUCKET/validator.pem` to bucket, from `validator.pem` above.
+  - Upload `s3://CLOUDSTRAP_BUCKET/babysitter/dereg.pem` to bucket, from `dereg.pem` above.
   - Upload VPN server credentials to `s3://BUCKET/vpn-server`
 - Create security group `ssh-accessible.CLOUDNAME.ENV`.
   - ingress for `/0`: tcp 22 (TODO: change to VPN subnet when VPN working)
