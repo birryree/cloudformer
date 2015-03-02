@@ -1,3 +1,4 @@
+from __future__ import print_function
 import argparse
 import os
 import pkgutil
@@ -6,7 +7,6 @@ import sys
 import network
 import config
 
-#from components import babysitter, zookeeper, vpn
 
 def _create_parser():
     parser = argparse.ArgumentParser(prog='generate.py')
@@ -25,14 +25,13 @@ def _emit_component_configurations(package):
             # generate configuration for module if it doesn't have the EMIT
             # property set or if it's set to something 'true'
             if (hasattr(cls, 'EMIT') and cls.EMIT) or not hasattr(cls, 'EMIT'):
-                print("Generating configuration for {0} module".format(module_name))
+                print("Generating configuration for {0} module".format(module_name), file=sys.stderr)
                 try:
                     cls.emit_configuration()
                 except AttributeError, ae:
-                    print ae
-                    print("Could not generate configuration for {0} module as it's missing emit_configuration".format(module_name))
+                    print("Could not generate configuration for {0} module as it's missing emit_configuration".format(module_name), file=sys.stderr)
             else:
-                print("Skipping configuration for {0} module because EMIT was set to False".format(module_name))
+                print("Skipping configuration for {0} module because EMIT was set to False".format(module_name), file=sys.stderr)
 
 
 def generate_cloudformation_template(outfile):
@@ -42,18 +41,20 @@ def generate_cloudformation_template(outfile):
     _emit_component_configurations('core')
     _emit_component_configurations('components')
 
-    with open(outfile, 'w') as ofile:
-        print >> ofile, config.template.to_json()
+    if outfile:
+        with open(outfile, 'w') as ofile:
+            print(config.template.to_json(), file=ofile)
+    else:
+        print(config.template.to_json())
 
 if __name__ == '__main__':
     arg_parser = _create_parser()
     args = arg_parser.parse_args()
 
-    print('Creating cloudformation template using config file: {0} '.format(args.config))
+    print('Creating cloudformation template using config file: {0} '.format(args.config), file=sys.stderr)
 
     if args.config:
-        print "Initializing with external YAML configuration"
+        print("Initializing with external YAML configuration", file=sys.stderr)
         config.initialize(args.config)
-        print config.CIDR_PREFIX
 
     generate_cloudformation_template(args.outfile)

@@ -38,6 +38,7 @@ def emit_configuration():
             'VPC',
             CidrBlock='{0}.0.0/16'.format(cfn.CIDR_PREFIX),
             EnableDnsSupport=True,
+            EnableDnsHostnames=True,
             Tags=Tags(Name=Join('-', [cfn.VPC_NAME, Ref('AWS::Region')]))
         )
     )

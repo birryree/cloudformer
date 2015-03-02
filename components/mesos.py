@@ -34,7 +34,7 @@ def emit_configuration():
     ingress_rules = [
         SecurityGroupRule(
             IpProtocol=p[0], CidrIp=DEFAULT_ROUTE, FromPort=p[1], ToPort=p[1]
-        ) for p in [('tcp', 22)]
+        ) for p in [('tcp', 22), ('tcp', 5050), ('tcp', 8080)]
     ]
 
     mesos_security_group = template.add_resource(
