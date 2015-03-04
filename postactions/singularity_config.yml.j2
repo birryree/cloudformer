@@ -1,0 +1,38 @@
+server:
+  type: simple
+  applicationContextPath: /singularity
+  connector:
+    type: http
+    port: ${port}
+  requestLog:
+    appenders:
+      - type: file
+        currentLogFilename: ../logs/access.log
+        archivedLogFilenamePattern: ../logs/access-%d.log.gz
+
+mesos:
+  master: zk://10.151.90.202:2181,10.151.92.35:2181,10.151.91.126:2181/mesos
+  defaultCpus: 1
+  defaultMemory: 256
+  frameworkName: Singularity
+  frameworkId: Singularity
+  frameworkFailoverTimeout: 1000000
+
+zookeeper:
+  quorum: 10.151.90.202:2181,10.151.92.35:2181,10.151.91.126:2181
+  zkNamespace: singularity
+  sessionTimeoutMillis: 60000
+  connectTimeoutMillis: 5000
+  retryBaseSleepTimeMilliseconds: 1000
+  retryMaxTries: 3
+
+logging:
+  loggers:
+    "com.hubspot.singularity" : TRACE
+
+enableCorsFilter: true
+sandboxDefaultsToTaskId: false  # enable if using SingularityExecutor
+
+ui:
+  title: Singularity (local)
+  baseUrl: http://${host}:${port}/singularity

@@ -1,0 +1,8 @@
+{
+  "id": "singularity",
+  "instances": 1,
+  "cpus": 1.0,
+  "mem": 256,
+  "uris": ["https://s3.amazonaws.com/leafme-infra-marathon-deploy-bucket/SingularityService-latest.tgz"],
+  "cmd": "cd singularityservice; bash start_singularity"
+}

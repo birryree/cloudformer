@@ -50,8 +50,8 @@ while [[ 1 ]]; do
     fi
 
     # Determine if the stack is still being deleted
-    stack_status=$(echo $json | jq '.Stacks[0].StackStatus')
-    if [[ $stack_status == '"DELETE_IN_PROGRESS"' ]]; then
+    stack_status=$(echo $json | jq '.Stacks[0].StackStatus' -r)
+    if [[ $stack_status == "DELETE_IN_PROGRESS" ]]; then
         echo "Stack still in state ${stack_status}. Waiting..."
     else
         echo "Stack in unexpected state ${stack_status}. Try running script again."
@@ -69,12 +69,12 @@ while [[ 1 ]]; do
     ret=0
     stack_status=""
     json=$(aws cloudformation describe-stacks --stack-name ${stack_name}) || ret=$?
-    stack_status=$(echo $json | jq '.Stacks[0].StackStatus')
-    if [[ $stack_status == '"CREATE_COMPLETE"' ]]; then
+    stack_status=$(echo $json | jq '.Stacks[0].StackStatus' -r)
+    if [[ $stack_status == "CREATE_COMPLETE" ]]; then
         # This is done, exit the loop
         echo "Stack created"
         break
-    elif [[ $stack_status == '"CREATE_IN_PROGRESS"' ]]; then
+    elif [[ $stack_status == "CREATE_IN_PROGRESS" ]]; then
         echo "Stack still in state ${stack_status}. Waiting"
         sleep 30
     else
@@ -84,3 +84,4 @@ while [[ 1 ]]; do
 done
 
 # Now the stack is created, so attempt to do more with it
+

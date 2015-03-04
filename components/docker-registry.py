@@ -32,7 +32,7 @@ def emit_configuration():
         template.add_condition(c, conditions[c])
 
     # Create the registry bucket
-    bucket_name = Join('.', ['zookeeper', CLOUDNAME, Ref("AWS::Region"), CLOUDENV, 'leafme'])
+    bucket_name = Join('.', ['docker-registry', CLOUDNAME, Ref("AWS::Region"), CLOUDENV, 'leafme'])
     bucket = template.add_resource(
         Bucket(
             "DockerRegistryBucket",

@@ -1,0 +1,25 @@
+{
+    "id": "docker-registry",
+    "container": {
+        "docker": {
+            "image": "registry",
+            "portMappings": [
+                { "containerPort": 5000, "hostPort": 0, "servicePort": 9000, "protocol": "tcp" }
+            ],
+            "network": "BRIDGE"
+        },
+        "type": "DOCKER"
+    },
+    "env": {
+        "SETTINGS_FLAVOR": "s3",
+        "AWS_BUCKET": "docker-registry.test-cloud.us-east-1.infra.leafme",
+        "STORAGE_PATH": "/registry",
+        "SEARCH_BACKEND": "sqlalchemy",
+        "AWS_KEY": "AKIAJ5OIXB7K6PQWB6OA",
+        "AWS_SECRET": "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"
+    },
+    "cpus": 1,
+    "mem": 512.0,
+    "instances": 1
+}
+
