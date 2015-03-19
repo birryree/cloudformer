@@ -22,6 +22,7 @@ def sanitize_id(*args):
 
 
 # These are default (sane-ish) values
+# TODO: we really need to restrict our security groups, right now they're all DEFAULT_ROUTE
 DEFAULT_ROUTE = '0.0.0.0/0'
 CIDR_PREFIX = '10.151'
 CLOUDNAME = 'test-cloud'
