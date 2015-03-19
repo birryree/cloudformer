@@ -77,7 +77,7 @@ def emit_configuration():
 
     security_group = template.add_resource(
         ec2.SecurityGroup(
-            "BabysitterSecurityGroup",
+            "Babysitter",
             GroupDescription='Security Group for babysitter instances',
             VpcId=Ref(cfn.vpcs[0]),
             SecurityGroupIngress=ingress_rules,

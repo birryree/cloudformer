@@ -42,7 +42,7 @@ def emit_configuration():
 
     vpn_sg = template.add_resource(
         SecurityGroup(
-            "VPNSecurityGroup",
+            "VPN",
             GroupDescription="Security Group for VPN ingress.",
             VpcId=Ref(vpc),
             SecurityGroupIngress=vpn_ingress_rules,

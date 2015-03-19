@@ -84,7 +84,7 @@ def emit_configuration():
 
     chefserver_sg = template.add_resource(
         SecurityGroup(
-            "ChefServerSecurityGroup",
+            "ChefServer",
             GroupDescription="Security Group for the Chef server",
             VpcId=Ref(vpc),
             SecurityGroupIngress=chefserver_ingress_rules,

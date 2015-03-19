@@ -39,7 +39,7 @@ def emit_configuration():
 
     mesos_security_group = template.add_resource(
         SecurityGroup(
-            "MesosSecurityGroup",
+            "Mesos",
             GroupDescription="Security Group for Mesos instances",
             VpcId=Ref(vpc),
             SecurityGroupIngress=ingress_rules,

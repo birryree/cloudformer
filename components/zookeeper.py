@@ -66,7 +66,7 @@ def emit_configuration():
 
     zookeeper_sg = template.add_resource(
         SecurityGroup(
-            "ZookeeperSecurityGroup",
+            "Zookeeper",
             GroupDescription="Security Group for ZooKeeper instances",
             VpcId=Ref(vpc),
             SecurityGroupIngress=ingress_rules,

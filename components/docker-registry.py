@@ -67,7 +67,7 @@ def emit_configuration():
 
     sg = template.add_resource(
         SecurityGroup(
-            "DockerRegistrySecurityGroup",
+            "DockerRegistry",
             GroupDescription="Security Group for Docker Registries",
             VpcId=Ref(vpc),
             SecurityGroupIngress=ingress_rules,
