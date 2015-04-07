@@ -54,7 +54,9 @@ erber -o env=infra -o cloud=test-cloud -o deploy=babysitter lib/templates/cloud-
   - 1 instance
   - Subscribe `terminate` notices to SNS topic `chef-deregistration_CLOUDNAME_ENV`.
   - Add it. (Chef will do the rest.)
-- `TODO:` write up the deregistration gizmo. 
+- In Chef:
+  - create a `dereg` user; save the `dereg.pem`.
+  - upload `lib/chef/acls/containers/clients.json` and `lib/chef/acls/containers/nodes.json` into the chef repo (it will empower `dereg` to delete nodes and clients). I'm usually just lazy and use `knife edit`, because `knife upload` is dumb.
 
 ## Zookeeper
 - Create S3 bucket `zookeeper.CLOUDNAME.REGION.ENV.leafme`.
