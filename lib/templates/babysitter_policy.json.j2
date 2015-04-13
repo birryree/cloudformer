@@ -35,7 +35,8 @@
       "Sid": "",
       "Effect": "Allow",
       "Action": [
-        "s3:GetObject"
+        "s3:GetObject",
+        "s3:HeadObject"
       ],
       "Resource": [
         "arn:aws:s3:::cloudstrap.{{ cloud }}.{{ region }}.{{ env }}.leafme/babysitter/*"

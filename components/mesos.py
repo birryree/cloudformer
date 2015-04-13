@@ -16,8 +16,6 @@ import config as cfn
 from config import template, CIDR_PREFIX, CLOUDNAME, CLOUDENV, ASSUME_ROLE_POLICY
 from config import DEFAULT_ROUTE
 
-EMIT = False
-
 def emit_configuration():
     vpc = cfn.vpcs[0]
     region = Ref("AWS::Region")

@@ -1,9 +1,0 @@
----
-infra:
-    - cloudname: "test-cloud"
-      env: "infra"
-      region: "us-east-1"
-    # Worker subnets for AZ
-      network:
-        cidr_16_prefix: "10.151"
-        private_subnets: True

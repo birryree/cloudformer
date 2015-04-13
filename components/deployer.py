@@ -6,8 +6,6 @@ from troposphere.s3 import Bucket
 
 from config import template, CLOUDNAME, CLOUDENV
 
-EMIT = True
-
 def emit_configuration():
     create_bucket = template.add_parameter(
         Parameter(

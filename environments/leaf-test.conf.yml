@@ -1,0 +1,15 @@
+---
+infra:
+    - cloudname: "cloud"
+      env: "test"
+      region: "us-east-1"
+    # Worker subnets for AZ
+      network:
+        cidr_16_prefix: "10.32"
+        private_subnets: True
+components:
+    - babysitter
+    - application-support
+    - farragut_queues
+    - postgres
+    - vpn

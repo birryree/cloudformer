@@ -9,6 +9,7 @@ import jinja2
 from enum import IntEnum
 from troposphere import Template, Join, Ref
 
+
 def sanitize_id(*args):
     '''This sanitizes logical identifiers for Cloudformation as they are not allowed
     to have anything but [A-Za-z0-9]
@@ -18,7 +19,6 @@ def sanitize_id(*args):
 
     identifier = ''.join(args)
     return ''.join([c for c in identifier if c.isalnum()])
-
 
 
 # These are default (sane-ish) values
@@ -31,16 +31,15 @@ REGION = 'us-east-1'
 USE_PRIVATE_SUBNETS = True
 VPC_NAME = sanitize_id(CLOUDNAME, CLOUDENV)
 
-def initialize(ymlfile):
+
+def initialize(config):
     global CIDR_PREFIX
     global CLOUDNAME
     global CLOUDENV
     global USE_PRIVATE_SUBNETS
     global REGION
     global VPC_NAME
-    with open (ymlfile, 'r') as yfile:
-        config = yaml.load(yfile)
-        infra = config['infra'][0]
+    infra = config['infra'][0]
 
     CIDR_PREFIX = infra['network']['cidr_16_prefix']
     CLOUDNAME = infra['cloudname']
@@ -69,7 +68,7 @@ def usable_instances():
     return ALLOWED_INSTANCE_SIZES
 
 Amis = IntEnum('Amis', 'NAT EBS INSTANCE')
-SubnetTypes = IntEnum('SubnetTypes', 'PUBLIC PLATFORM WORKER VPN MASTER')
+SubnetTypes = IntEnum('SubnetTypes', 'PUBLIC PLATFORM WORKER VPN MASTER DATABASE')
 
 # This is just hardcoded in right now, and really only fits us-east-1's mold
 availability_zones = ['c', 'd', 'e']
@@ -119,7 +118,8 @@ vpcs = list()
 vpc_subnets = defaultdict(lambda: defaultdict(list))
 
 # The SNS topic that will be used to alert of instance termination
-instance_terminate_topic = None
+alert_topic = None
+
 
 def add_vpc_subnets(vpc, identifier, subnets):
     """Associate subnets with a VPC based on the subnet type"""

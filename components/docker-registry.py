@@ -15,8 +15,6 @@ from troposphere.autoscaling import EC2_INSTANCE_TERMINATE, EC2_INSTANCE_LAUNCH,
 import config as cfn
 from config import template, CLOUDNAME, CLOUDENV, CIDR_PREFIX, ASSUME_ROLE_POLICY, DEFAULT_ROUTE
 
-EMIT = True
-
 def emit_configuration():
     vpc = cfn.vpcs[0]
 

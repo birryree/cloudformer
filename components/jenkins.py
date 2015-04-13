@@ -18,8 +18,6 @@ import config as cfn
 from config import CIDR_PREFIX, VPC_NAME, CLOUDNAME, CLOUDENV, ASSUME_ROLE_POLICY, template
 from config import USE_PRIVATE_SUBNETS, DEFAULT_ROUTE
 
-EMIT = True
-
 def emit_configuration():
     # Parameters here
     jenkins_instance_class = template.add_parameter(

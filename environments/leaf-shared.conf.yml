@@ -1,0 +1,14 @@
+---
+infra:
+    - cloudname: "cloud"
+      env: "shared"
+      region: "us-east-1"
+    # Worker subnets for AZ
+      network:
+        cidr_16_prefix: "10.251"
+        private_subnets: True
+components:
+    - application-support
+    - babysitter
+    - jenkins
+    - vpn

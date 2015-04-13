@@ -9,6 +9,7 @@ from troposphere import Parameter, Ref, Tags, Join, Output, Select, FindInMap
 import troposphere.ec2 as ec2
 
 import config as cfn
+from config import CLOUDNAME
 
 def emit_configuration():
     # Build the VPC here
@@ -49,7 +50,7 @@ def emit_configuration():
     gateway = template.add_resource(
         ec2.InternetGateway(
             'InternetGateway',
-            Tags=Tags(Name='InternetGateway'),
+            Tags=Tags(Name='InternetGateway-{0}'.format(CLOUDNAME)),
             DependsOn=vpc.title
         )
     )
@@ -112,6 +113,7 @@ def emit_configuration():
     public_subnets = list()
     vpn_subnets = list()
     worker_subnets = list()
+    database_subnets = list()
     subnet_identifier = 'private'
 
     for idx, zone in enumerate(cfn.get_availability_zones()):
@@ -225,13 +227,23 @@ def emit_configuration():
         )
         vpn_subnets.append(vpn_subnet)
 
+        database_subnet = ec2.Subnet(
+            '{0}DatabaseSubnet{1}'.format(cfn.VPC_NAME, zone),
+            VpcId=Ref(vpc),
+            CidrBlock='{0}.{1}.0/24'.format(cfn.CIDR_PREFIX, 20 + idx),
+            AvailabilityZone=full_region_descriptor,
+            DependsOn=vpc.title,
+            Tags=Tags(Name=Join('-', [cfn.VPC_NAME, subnet_identifier, 'database-subnet', full_region_descriptor]))
+        )
+        database_subnets.append(database_subnet)
+
     # Associate a routing table with each of the master/platform/worker subnets
     if cfn.USE_PRIVATE_SUBNETS:
         routing_table = private_routing_table
     else:
         routing_table = public_routing_table
 
-    for sn in chain(worker_subnets, master_subnets, platform_subnets):
+    for sn in chain(worker_subnets, master_subnets, platform_subnets, database_subnets):
         template.add_resource(sn)
         template.add_resource(
             ec2.SubnetRouteTableAssociation(
@@ -260,3 +272,4 @@ def emit_configuration():
     cfn.add_vpc_subnets(vpc, cfn.SubnetTypes.MASTER, master_subnets)
     cfn.add_vpc_subnets(vpc, cfn.SubnetTypes.WORKER, worker_subnets)
     cfn.add_vpc_subnets(vpc, cfn.SubnetTypes.VPN, vpn_subnets)
+    cfn.add_vpc_subnets(vpc, cfn.SubnetTypes.DATABASE, database_subnets)
