@@ -40,13 +40,13 @@ def emit_configuration():
                 iam.Policy(
                     PolicyName='BabySitterPolicy',
                     PolicyDocument=json.loads(cfn.load_template("babysitter_policy.json.j2",
-                        {"env": CLOUDENV, "cloud": CLOUDNAME, "region": "us-east-1"}
+                        {"env": CLOUDENV, "cloud": CLOUDNAME, "region": "us-west-2"}
                     ))
                 ),
                 iam.Policy(
                     PolicyName='BabySitterDefaultPolicy',
                     PolicyDocument=json.loads(cfn.load_template("default_policy.json.j2",
-                        {"env": CLOUDENV, "cloud": CLOUDNAME, "region": "us-east-1"}
+                        {"env": CLOUDENV, "cloud": CLOUDNAME, "region": "us-west-2"}
                     ))
                 )
             ],

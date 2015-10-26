@@ -50,11 +50,11 @@ def emit_configuration():
 
     # IAM role for vpn
     vpn_policy = json.loads(cfn.load_template("vpn_policy.json.j2",
-        {"env": CLOUDENV, "cloud": CLOUDNAME, "region": "us-east-1"}
+        {"env": CLOUDENV, "cloud": CLOUDNAME, "region": "us-west-2"}
     ))
 
     default_policy = json.loads(cfn.load_template("default_policy.json.j2",
-        {"env": CLOUDENV, "cloud": CLOUDNAME, "region": "us-east-1"}
+        {"env": CLOUDENV, "cloud": CLOUDNAME, "region": "us-west-2"}
     ))
 
     vpn_role_name = '.'.join(['vpn', CLOUDNAME, CLOUDENV])

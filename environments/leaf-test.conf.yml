@@ -2,7 +2,7 @@
 infra:
     - cloudname: "cloud"
       env: "test"
-      region: "us-east-1"
+      region: "us-west-2"
     # Worker subnets for AZ
       network:
         cidr_16_prefix: "10.32"
@@ -10,6 +10,4 @@ infra:
 components:
     - babysitter
     - application-support
-    - farragut_queues
-    - postgres
     - vpn

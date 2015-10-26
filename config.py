@@ -27,7 +27,7 @@ DEFAULT_ROUTE = '0.0.0.0/0'
 CIDR_PREFIX = '10.151'
 CLOUDNAME = 'test-cloud'
 CLOUDENV = 'infra'
-REGION = 'us-east-1'
+REGION = 'us-west-2'
 USE_PRIVATE_SUBNETS = True
 VPC_NAME = sanitize_id(CLOUDNAME, CLOUDENV)
 
@@ -71,7 +71,7 @@ Amis = IntEnum('Amis', 'NAT EBS INSTANCE')
 SubnetTypes = IntEnum('SubnetTypes', 'PUBLIC PLATFORM WORKER VPN MASTER DATABASE')
 
 # This is just hardcoded in right now, and really only fits us-east-1's mold
-availability_zones = ['c', 'd', 'e']
+availability_zones = ['a', 'b', 'c']
 
 def get_availability_zones():
     return availability_zones
@@ -91,7 +91,9 @@ template.add_mapping('RegionMap',
                           int(Amis.EBS): 'ami-86562dee',
                           int(Amis.INSTANCE): 'ami-cc5229a4'},
             'us-west-1': {int(Amis.NAT): 'ami-a98396ec'},
-            'us-west-2': {int(Amis.NAT): 'ami-290f4119'},
+            'us-west-2': {int(Amis.NAT): 'ami-290f4119',
+                          int(Amis.EBS): 'ami-51526761',
+                          int(Amis.INSTANCE): 'ami-6d53665d'},
             'eu-west-1': {int(Amis.NAT): 'ami-14913f63'},
             'ap-northeast-1': {int(Amis.NAT): 'ami-27d6e626'},
             'ap-southeast-1': {int(Amis.NAT): 'ami-6aa38238'},
