@@ -20,22 +20,6 @@ group "wheel" do
   members [ 'ed', 'wlee' ]
 end
 
-if [ "infra", "dev" ].include?(node[:leaf][:env])
-  user_account "firat" do
-    action :create
-
-    ssh_keygen false
-    ssh_keys [ 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQD5shqGpIyhcu4kkYUVUIu2DdKGWTa/8NjogvmeoA6eg6OypiMl9zi41cSdEw9iNPeEsMPKEkt5M7ute9fiL5hMZMfRzlvmOhZ3TolTv9EpKojWf1BWA6V8coXcvgAzFWYCL4Lv7gWhAtrWi21/W+uVs0Hw/6FB8y1rcwM/FIdNmh+WuqXz/kRJrsTogy+NCVS0qSCLsnKdzfF7jIHIX49Ki4+vLp6yCSo4Y0yG2ywF4v0X++weyWfe/JolB9iFuVuqO2Ptce9R4dxajaeuyrfpgm2vk3FWcdbxOoerlC35bTIOHoi6XvTd772Oymlpvzzm9gVmQkP3vF5djHEgndYd firat@vngrs.com' ]
-  end
-
-  group "wheel" do
-    action :modify
-
-    append true
-    members [ 'firat' ]
-  end
-end
-
 case node.platform
   when "ubuntu"
     user_account "ubuntu" do

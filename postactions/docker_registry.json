@@ -12,11 +12,11 @@
     },
     "env": {
         "SETTINGS_FLAVOR": "s3",
-        "AWS_BUCKET": "docker-registry.test-cloud.us-east-1.infra.leafme",
+        "AWS_BUCKET": "bucket",
         "STORAGE_PATH": "/registry",
         "SEARCH_BACKEND": "sqlalchemy",
-        "AWS_KEY": "AKIAJ5OIXB7K6PQWB6OA",
-        "AWS_SECRET": "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"
+        "AWS_KEY": "key",
+        "AWS_SECRET": "secret"
     },
     "cpus": 1,
     "mem": 512.0,
